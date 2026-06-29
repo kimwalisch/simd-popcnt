@@ -679,4 +679,52 @@ mod tests {
             }
         }
     }
+
+    /// Faithful port of `libpopcnt/test/test1.cpp` (and the identical `test2.c`):
+    /// count `popcnt()` of every suffix `data[i..]` and verify against an
+    /// independent byte-wise reference. The sweep covers every length from 0 up
+    /// to the array size, each at a shifting start offset, so length and
+    /// alignment both vary across the run.
+    ///
+    /// Size defaults to 20_000 to keep `cargo test` fast — the sweep is O(n²) in
+    /// the work `popcnt` performs. Override with the `SIMD_POPCNT_TEST_SIZE`
+    /// environment variable for a heavier run matching the C test's default,
+    /// e.g. `SIMD_POPCNT_TEST_SIZE=100000 cargo test --release suffix_sweep`.
+    #[test]
+    fn suffix_sweep() {
+        let size = std::env::var("SIMD_POPCNT_TEST_SIZE")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(20_000);
+
+        // All-ones array (matches test1.cpp's initial check).
+        let ones = vec![0xFFu8; size];
+        check_all_suffixes(&ones);
+
+        // Deterministic pseudo-random array. The C test seeds with time(0);
+        // a fixed xorshift seed instead keeps any failure reproducible.
+        let mut state: u64 = 0x2545_F491_4F6C_DD1D;
+        let mut data = vec![0u8; size];
+        for b in data.iter_mut() {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            *b = state as u8;
+        }
+        check_all_suffixes(&data);
+    }
+
+    /// Assert `popcnt(&data[i..])` for every `i`, against an O(1) prefix-sum
+    /// reference built from `popcnt64_bitwise` per byte — the same independent
+    /// oracle `test1.cpp` uses. Only `popcnt` itself does O(n) work per suffix.
+    fn check_all_suffixes(data: &[u8]) {
+        let total: u64 = data.iter().map(|&b| popcnt64_bitwise(b as u64)).sum();
+        let mut prefix = 0u64; // popcount of data[..i]
+        for (i, &byte) in data.iter().enumerate() {
+            assert_eq!(popcnt(&data[i..]), total - prefix, "suffix at offset {i}");
+            prefix += popcnt64_bitwise(byte as u64);
+        }
+        // Empty suffix.
+        assert_eq!(popcnt(&data[data.len()..]), 0);
+    }
 }

@@ -43,6 +43,18 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
 This selects the best SIMD path **at compile time** with zero runtime-dispatch
 overhead, mirroring `-march=native` in the C library.
 
+## Benchmarking
+
+A command-line benchmark ships as an example (a developer tool — it is not built
+when you depend on the crate). Measure throughput on your CPU with:
+
+```sh
+RUSTFLAGS="-C target-cpu=native" cargo run --release --example benchmark [array_bytes] [iters]
+```
+
+It prints the selected kernel and GB/s. Defaults: 16 KiB array, 10,000,000
+iterations.
+
 ## How it works
 
 * **Compile-time dispatch** — when a feature such as `avx2` or
