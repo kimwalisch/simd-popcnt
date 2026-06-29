@@ -1,4 +1,4 @@
-# libpopcnt
+# simd-popcnt
 
 A fast Rust library for counting the number of 1 bits (bit population count,
 a.k.a. Hamming weight) in a byte slice, using specialized CPU instructions:
@@ -21,7 +21,7 @@ pub fn popcnt(data: &[u8]) -> u64
 ```
 
 ```rust
-use libpopcnt::popcnt;
+use simd_popcnt::popcnt;
 
 assert_eq!(popcnt(&[]), 0);
 assert_eq!(popcnt(&[0xFF]), 8);
@@ -62,7 +62,7 @@ overhead, mirroring `-march=native` in the C library.
 SVE intrinsics in `std::arch` are still nightly-gated
 (`feature(stdarch_aarch64_sve)`). [`build.rs`](build.rs) probes whether the
 active compiler accepts SVE intrinsics and, only if so, sets the
-`libpopcnt_have_sve` cfg. On stable Rust the SVE code is compiled out and the
+`simd_popcnt_have_sve` cfg. On stable Rust the SVE code is compiled out and the
 NEON path is used; the rest of the crate builds on stable.
 
 ## Minimum supported Rust version

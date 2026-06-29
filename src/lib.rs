@@ -1,4 +1,4 @@
-//! # libpopcnt
+//! # simd-popcnt
 //!
 //! Count the number of 1 bits (bit population count, a.k.a. Hamming weight) in
 //! a byte slice as quickly as possible using specialized CPU instructions:
@@ -11,7 +11,7 @@
 //!
 //! ```
 //! let data = [0xFFu8; 16];
-//! assert_eq!(libpopcnt::popcnt(&data), 128);
+//! assert_eq!(simd_popcnt::popcnt(&data), 128);
 //! ```
 //!
 //! ## Performance
@@ -22,7 +22,7 @@
 //! detected at runtime (cached after the first call), exactly like the C library.
 
 // Enable SVE intrinsics only when build.rs confirmed they compile on this rustc.
-#![cfg_attr(libpopcnt_have_sve, feature(stdarch_aarch64_sve))]
+#![cfg_attr(simd_popcnt_have_sve, feature(stdarch_aarch64_sve))]
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -37,9 +37,9 @@ use core::arch::x86_64::*;
 /// # Examples
 ///
 /// ```
-/// assert_eq!(libpopcnt::popcnt(&[]), 0);
-/// assert_eq!(libpopcnt::popcnt(&[0xFF]), 8);
-/// assert_eq!(libpopcnt::popcnt(&[0b1010_1010, 0b0000_0001]), 5);
+/// assert_eq!(simd_popcnt::popcnt(&[]), 0);
+/// assert_eq!(simd_popcnt::popcnt(&[0xFF]), 8);
+/// assert_eq!(simd_popcnt::popcnt(&[0b1010_1010, 0b0000_0001]), 5);
 /// ```
 #[inline]
 pub fn popcnt(data: &[u8]) -> u64 {
@@ -427,14 +427,14 @@ fn popcnt_avx512(data: &[u8]) -> u64 {
 fn popcnt_aarch64(data: &[u8]) -> u64 {
     // Compile-time: SVE statically enabled (e.g. `-C target-feature=+sve`) and
     // the toolchain provides SVE intrinsics.
-    #[cfg(all(target_feature = "sve", libpopcnt_have_sve))]
+    #[cfg(all(target_feature = "sve", simd_popcnt_have_sve))]
     {
         unsafe { popcnt_arm_sve(data) }
     }
 
     // NEON is mandatory on all AArch64 CPUs. `popcnt_neon` performs SVE runtime
-    // dispatch internally when `libpopcnt_have_sve` is set.
-    #[cfg(not(all(target_feature = "sve", libpopcnt_have_sve)))]
+    // dispatch internally when `simd_popcnt_have_sve` is set.
+    #[cfg(not(all(target_feature = "sve", simd_popcnt_have_sve)))]
     {
         popcnt_neon(data)
     }
@@ -455,17 +455,20 @@ fn popcnt_neon(data: &[u8]) -> u64 {
     use core::arch::aarch64::*;
 
     // ── ARM SVE runtime dispatch (compiled only when build.rs probe succeeded) ─
-    #[cfg(libpopcnt_have_sve)]
+    #[cfg(simd_popcnt_have_sve)]
     {
-        // Static cache mirroring the C `libpopcnt_arm_sve` global. Relaxed
-        // ordering is correct: the cached value is idempotent (all threads
-        // compute the same result) and it guards no other data.
+        // Cached SVE detection, the equivalent of the C `libpopcnt_arm_sve`
+        // global. Unlike C, no `simd_popcnt_` name prefix is needed: this
+        // static is private to the function and cannot collide with user or
+        // third-party symbols. Relaxed ordering is correct: the value is
+        // idempotent (all threads compute the same result) and guards no
+        // other data.
         use core::sync::atomic::{AtomicI32, Ordering};
-        static LIBPOPCNT_ARM_SVE: AtomicI32 = AtomicI32::new(-1);
-        let cached = LIBPOPCNT_ARM_SVE.load(Ordering::Relaxed);
+        static SVE_SUPPORT: AtomicI32 = AtomicI32::new(-1);
+        let cached = SVE_SUPPORT.load(Ordering::Relaxed);
         let has_sve = if cached == -1 {
             let v = has_arm_sve() as i32;
-            LIBPOPCNT_ARM_SVE.store(v, Ordering::Relaxed);
+            SVE_SUPPORT.store(v, Ordering::Relaxed);
             v
         } else {
             cached
@@ -532,7 +535,7 @@ fn popcnt_neon(data: &[u8]) -> u64 {
 
 // ── ARM SVE ─────────────────────────────────────────────────────────────────
 
-#[cfg(all(target_arch = "aarch64", libpopcnt_have_sve))]
+#[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
 fn has_arm_sve() -> bool {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
@@ -559,10 +562,10 @@ fn has_arm_sve() -> bool {
     }
 }
 
-/// ARM SVE popcount. Gated by both `libpopcnt_have_sve` (intrinsics compile on
+/// ARM SVE popcount. Gated by both `simd_popcnt_have_sve` (intrinsics compile on
 /// this rustc) and `#[target_feature(enable = "sve")]` (SVE instructions are
 /// generated even without `-C target-feature=+sve`).
-#[cfg(all(target_arch = "aarch64", libpopcnt_have_sve))]
+#[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
 #[target_feature(enable = "sve")]
 fn popcnt_arm_sve(data: &[u8]) -> u64 {
     use core::arch::aarch64::*;
