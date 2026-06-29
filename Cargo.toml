@@ -1,0 +1,23 @@
+[package]
+name         = "libpopcnt"
+version      = "0.1.0"
+edition      = "2024"
+# AVX512 intrinsics in std::arch were stabilized in Rust 1.89.
+rust-version = "1.89"
+license      = "MIT OR Apache-2.0"
+description  = "Fast bit population count (number of 1 bits) of a byte slice using POPCNT, AVX2, AVX512, ARM NEON and ARM SVE."
+repository   = "https://github.com/kimwalisch/libpopcnt-rs"
+readme       = "README.md"
+keywords     = ["popcount", "popcnt", "simd", "bitcount", "hamming"]
+categories   = ["algorithms"]
+
+[lib]
+name = "libpopcnt"
+
+# ARM SVE runtime detection on Linux/Android — only compiled on aarch64.
+[target.'cfg(all(target_arch = "aarch64", any(target_os = "linux", target_os = "android")))'.dependencies]
+libc = "0.2"
+
+# ARM SVE runtime detection on Windows ARM64.
+[target.'cfg(all(target_arch = "aarch64", target_os = "windows"))'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Threading"] }
