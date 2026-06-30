@@ -616,22 +616,19 @@ fn popcnt_neon(data: &[u8]) -> u64 {
 fn has_arm_sve() -> bool {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
-        // HWCAP_SVE, defined literally to avoid needing <asm/hwcap.h>, which is
-        // not installed by default on some Linux distros.
-        const HWCAP_SVE: u64 = 1 << 22;
+        // `libc` provides `HWCAP_SVE`, so the C library's `<asm/hwcap.h>`
+        // workaround (defining `1 << 22` literally) is unnecessary here.
         let hwcaps = unsafe { libc::getauxval(libc::AT_HWCAP) };
-        hwcaps & HWCAP_SVE != 0
+        hwcaps & libc::HWCAP_SVE != 0
     }
     #[cfg(target_os = "windows")]
     {
-        // PF_ARM_SVE_INSTRUCTIONS_AVAILABLE = 39, defined literally so this also
-        // builds with older Windows SDKs that predate the constant.
+        use windows_sys::Win32::System::Threading::IsProcessorFeaturePresent;
+        // windows-sys 0.59 does not define PF_ARM_SVE_INSTRUCTIONS_AVAILABLE yet
+        // (its Win32 metadata predates the constant), so use the literal value
+        // 39 — the same situation the C library handles for older Windows SDKs.
         const PF_ARM_SVE_INSTRUCTIONS_AVAILABLE: u32 = 39;
-        unsafe {
-            windows_sys::Win32::System::Threading::IsProcessorFeaturePresent(
-                PF_ARM_SVE_INSTRUCTIONS_AVAILABLE,
-            ) != 0
-        }
+        unsafe { IsProcessorFeaturePresent(PF_ARM_SVE_INSTRUCTIONS_AVAILABLE) != 0 }
     }
     #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "windows")))]
     {
