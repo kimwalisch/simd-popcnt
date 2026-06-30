@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Treat every compiler and rustdoc warning as an error — the Rust equivalent
+  # of building C with -Werror. Set here (CI only) rather than via
+  # `#![deny(warnings)]` in the source, which would break downstream builds and
+  # future compiler versions whenever a new lint is added.
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The repo's rust-toolchain.toml pins nightly (required for the ARM SVE
+      # intrinsics probe in build.rs). `components` adds clippy and rustfmt.
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # Formatting is platform-independent, so check it once.
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo fmt --check
+
+      # Clippy is Rust's deeper linter — the analog of -Wextra/-pedantic. Run it
+      # per-OS so both the x86 and AArch64 code paths get linted. `-D warnings`
+      # (from the env, plus the explicit flag) fails the build on any lint.
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Default build settings (no target-cpu=native): exercises the cached
+      # runtime CPU-feature dispatch. `cargo test` also runs the doctests and
+      # compiles the `benchmark` example.
+      - name: Run test suite
+        run: cargo test
