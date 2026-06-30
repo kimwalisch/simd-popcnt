@@ -49,6 +49,11 @@ assert_eq!("hello".as_bytes().popcnt(), 21);
 Population count is independent of byte order, so `.popcnt()` gives the same
 result on little- and big-endian targets.
 
+## Minimum supported Rust version
+
+Rust **1.89** (the release that stabilized the AVX512 intrinsics in `std::arch`).
+ARM SVE support additionally requires a nightly toolchain.
+
 ## CPU architectures
 
 `simd-popcnt` has hardware-accelerated popcount algorithms for the following CPU
@@ -124,16 +129,10 @@ Seconds: 1.91
 85.6 GB/s
 ```
 
-## Minimum supported Rust version
+## Acknowledgments
 
-Rust **1.89** (the release that stabilized the AVX512 intrinsics in `std::arch`).
-ARM SVE support additionally requires a nightly toolchain.
-
-## License
-
-Licensed under either of
-
-* MIT license ([LICENSE-MIT](LICENSE-MIT))
-* Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-
-at your option.
+Some of the algorithms used in ```libpopcnt.h``` are described in the paper
+[Faster Population Counts using AVX2 Instructions](https://arxiv.org/abs/1611.07612)
+by Daniel Lemire, Nathan Kurz and Wojciech Mula (23 Nov 2016). The AVX2 Harley Seal
+popcount algorithm used in ```libpopcnt.h``` has been copied from Wojciech Muła's
+[sse-popcount](https://github.com/WojciechMula/sse-popcount) GitHub repo.
