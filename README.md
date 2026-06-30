@@ -131,8 +131,8 @@ Seconds: 1.91
 
 ## Acknowledgments
 
-Some of the algorithms used in ```libpopcnt.h``` are described in the paper
+Some of the algorithms used in ```simd-popcnt``` are described in the paper
 [Faster Population Counts using AVX2 Instructions](https://arxiv.org/abs/1611.07612)
 by Daniel Lemire, Nathan Kurz and Wojciech Mula (23 Nov 2016). The AVX2 Harley Seal
-popcount algorithm used in ```libpopcnt.h``` has been copied from Wojciech Muła's
+popcount algorithm used in ```simd-popcnt``` has been copied from Wojciech Muła's
 [sse-popcount](https://github.com/WojciechMula/sse-popcount) GitHub repo.
