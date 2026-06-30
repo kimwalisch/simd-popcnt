@@ -517,13 +517,7 @@ fn popcnt_neon(bytes: &[u8]) -> u64 {
     // Scalar tail. On AArch64 `count_ones()` always lowers to NEON `cnt`, so no
     // POPCNT runtime check is needed here.
     let rest = &bytes[iters * CHUNK..];
-    let (chunks, rem) = rest.as_chunks::<8>();
-    for chunk in chunks {
-        cnt += u64::from_le_bytes(*chunk).count_ones() as u64;
-    }
-    if !rem.is_empty() {
-        cnt += tail_u64(rem).count_ones() as u64;
-    }
+    cnt += popcnt_scalar_loop!(rest);
     cnt
 }
 
