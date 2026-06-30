@@ -60,7 +60,7 @@ pub fn popcnt(data: &[u8]) -> u64 {
 
     #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
     {
-        popcnt_scalar_bitwise(data)
+        popcnt_scalar(data)
     }
 }
 
@@ -117,23 +117,6 @@ impl_popcnt_ext!(
 // Portable scalar fallbacks (available on every architecture)
 // ────────────────────────────────────────────────────────────────────────────
 
-/// Population count of a single `u64` using only integer arithmetic, for CPUs
-/// without a hardware POPCNT instruction.
-/// <http://en.wikipedia.org/wiki/Hamming_weight#Efficient_implementation>
-#[allow(dead_code)]
-#[inline]
-fn popcnt64_bitwise(x: u64) -> u64 {
-    const M1: u64 = 0x5555555555555555;
-    const M2: u64 = 0x3333333333333333;
-    const M4: u64 = 0x0F0F0F0F0F0F0F0F;
-    const H01: u64 = 0x0101010101010101;
-
-    let x = x - ((x >> 1) & M1);
-    let x = (x & M2) + ((x >> 2) & M2);
-    let x = (x + (x >> 4)) & M4;
-    x.wrapping_mul(H01) >> 56
-}
-
 /// Loads the trailing `rem.len()` (0..=7) bytes into the low bytes of a `u64`,
 /// little-endian, zero-extending the rest.
 #[inline]
@@ -143,19 +126,29 @@ fn tail_u64(rem: &[u8]) -> u64 {
     u64::from_le_bytes(buf)
 }
 
-/// Scalar population count using the integer fallback, for CPUs without a
-/// hardware POPCNT instruction.
+/// Scalar population count loop, summing `count_ones()` over 8-byte chunks.
+/// `count_ones()` is inlined in release and lowers to the target's hardware
+/// popcount where available (x86 POPCNT, PowerPC popcntd, WebAssembly
+/// `i64.popcnt`, …), otherwise to an inline bit-twiddling sequence — never a
+/// library call. Shared with the POPCNT-`target_feature` variant below.
+macro_rules! popcnt_scalar_loop {
+    ($data:expr) => {{
+        let mut cnt = 0u64;
+        let (chunks, rem) = $data.as_chunks::<8>();
+        for chunk in chunks {
+            cnt += u64::from_le_bytes(*chunk).count_ones() as u64;
+        }
+        if !rem.is_empty() {
+            cnt += tail_u64(rem).count_ones() as u64;
+        }
+        cnt
+    }};
+}
+
+/// Portable scalar population count via [`u64::count_ones`].
 #[allow(dead_code)]
-fn popcnt_scalar_bitwise(data: &[u8]) -> u64 {
-    let mut cnt = 0u64;
-    let (chunks, rem) = data.as_chunks::<8>();
-    for chunk in chunks {
-        cnt += popcnt64_bitwise(u64::from_le_bytes(*chunk));
-    }
-    if !rem.is_empty() {
-        cnt += popcnt64_bitwise(tail_u64(rem));
-    }
-    cnt
+fn popcnt_scalar(data: &[u8]) -> u64 {
+    popcnt_scalar_loop!(data)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -211,7 +204,7 @@ fn popcnt_scalar_static(data: &[u8]) -> u64 {
     }
     #[cfg(not(target_feature = "popcnt"))]
     {
-        popcnt_scalar_bitwise(data)
+        popcnt_scalar(data)
     }
 }
 
@@ -248,7 +241,7 @@ fn popcnt_x86_runtime(data: &[u8]) -> u64 {
     cnt += if is_x86_feature_detected!("popcnt") {
         unsafe { popcnt_scalar_hw(rest) }
     } else {
-        popcnt_scalar_bitwise(rest)
+        popcnt_scalar(rest)
     };
 
     cnt
@@ -261,15 +254,7 @@ fn popcnt_x86_runtime(data: &[u8]) -> u64 {
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "popcnt")]
 fn popcnt_scalar_hw(data: &[u8]) -> u64 {
-    let mut cnt = 0u64;
-    let (chunks, rem) = data.as_chunks::<8>();
-    for chunk in chunks {
-        cnt += u64::from_le_bytes(*chunk).count_ones() as u64; // emits: popcntq
-    }
-    if !rem.is_empty() {
-        cnt += tail_u64(rem).count_ones() as u64;
-    }
-    cnt
+    popcnt_scalar_loop!(data) // count_ones() lowers to popcntq here
 }
 
 // ── AVX2 ────────────────────────────────────────────────────────────────────
@@ -617,6 +602,19 @@ mod tests {
     /// Reference implementation: count bits one byte at a time.
     fn reference(data: &[u8]) -> u64 {
         data.iter().map(|b| b.count_ones() as u64).sum()
+    }
+
+    /// Independent integer-only popcount oracle (does not use `count_ones`),
+    /// so the sweep cross-checks the crate against a different algorithm.
+    fn popcnt64_bitwise(x: u64) -> u64 {
+        const M1: u64 = 0x5555555555555555;
+        const M2: u64 = 0x3333333333333333;
+        const M4: u64 = 0x0F0F0F0F0F0F0F0F;
+        const H01: u64 = 0x0101010101010101;
+        let x = x - ((x >> 1) & M1);
+        let x = (x & M2) + ((x >> 2) & M2);
+        let x = (x + (x >> 4)) & M4;
+        x.wrapping_mul(H01) >> 56
     }
 
     #[test]
