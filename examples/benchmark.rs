@@ -1,22 +1,11 @@
-//! Command-line benchmark for the `simd-popcnt` crate — a Rust port of
-//! `libpopcnt/benchmark.cpp`. It repeatedly counts the 1 bits in an array and
-//! reports throughput in GB/s, so you can measure how the crate performs on
-//! your CPU for your array size.
-//!
-//! This is a developer tool, **not** part of the library or its test suite.
-//! Files under `examples/` are not compiled when `simd-popcnt` is used as a
-//! dependency, and `cargo build` does not build them either — they are built
-//! only on demand (`cargo run --example`).
-//!
-//! ## Usage
+//! Command-line benchmark for `simd-popcnt`: repeatedly counts the 1 bits in an
+//! array and reports throughput in GB/s.
 //!
 //! ```text
 //! cargo run --release --example benchmark [array_bytes] [iters]
 //! ```
 //!
-//! Always use `--release`; a debug build measures unoptimized code. For the
-//! fastest path, also pass `RUSTFLAGS="-C target-cpu=native"` so the best SIMD
-//! kernel is selected at compile time. Defaults: 16 KiB array, 10,000,000 iters.
+//! Defaults: 16 KiB array, 10,000,000 iterations.
 
 use simd_popcnt::popcnt;
 use std::hint::black_box;
@@ -39,9 +28,7 @@ fn main() {
         eprintln!("warning: this is a debug build; rebuild with --release for meaningful numbers");
     }
 
-    // Fill with deterministic pseudo-random data (xorshift). popcnt timing is
-    // data-independent, so a fixed seed just keeps runs reproducible and avoids
-    // pulling in a random-number dependency.
+    // Deterministic pseudo-random fill (popcount timing is data-independent).
     let mut data = vec![0u8; bytes];
     let mut state: u64 = 0x2545_F491_4F6C_DD1D;
     for b in data.iter_mut() {
@@ -55,7 +42,7 @@ fn main() {
     print_array_size(bytes);
     println!("Algorithm: {}", algorithm(bytes));
 
-    // Independent reference count (one pass) used to verify the benchmark.
+    // Reference count, to verify the benchmark result.
     let expected: u64 = data.iter().map(|&b| b.count_ones() as u64).sum();
 
     let start = Instant::now();
@@ -68,22 +55,18 @@ fn main() {
             io::stdout().flush().ok();
             next += step;
         }
-        // `black_box(&data)` is essential: without it the optimizer would see
-        // that `popcnt(&data)` is loop-invariant and hoist it out of the loop
-        // (or fold all iterations into one), so the benchmark would time
-        // nothing. The C version relies on the popcnt CPUID global + I/O to
-        // inhibit this; in Rust we make the barrier explicit.
+        // `black_box` stops the optimizer from hoisting this loop-invariant
+        // call out of the loop (which would time nothing).
         total += popcnt(black_box(&data));
     }
     let seconds = start.elapsed().as_secs_f64();
     println!("\rStatus: 100%");
 
     println!("Seconds: {seconds:.2}");
-    let total_bytes = bytes as f64 * iters as f64;
-    let gbs = (total_bytes / 1e9) / seconds;
+    let gbs = (bytes as f64 * iters as f64 / 1e9) / seconds;
     println!("{gbs:.1} GB/s");
 
-    // Each call returns `expected`, so the sum must be `expected * iters`.
+    // Each call returns `expected`, so the total must be `expected * iters`.
     if total / iters as u64 != expected {
         eprintln!("simd-popcnt verification failed!");
         std::process::exit(1);
@@ -100,9 +83,7 @@ fn print_array_size(bytes: usize) {
     }
 }
 
-/// Report which kernel `popcnt()` will use for an array of `bytes` bytes,
-/// mirroring the dispatch in the library (compile-time target features first,
-/// then cached runtime detection) and the same size thresholds.
+/// Report which kernel `popcnt` will use for a `bytes`-byte array.
 fn algorithm(bytes: usize) -> &'static str {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
@@ -125,8 +106,6 @@ fn algorithm(bytes: usize) -> &'static str {
     #[cfg(target_arch = "aarch64")]
     {
         let _ = bytes;
-        // NEON is mandatory; SVE is used when statically enabled, or when the
-        // build.rs probe enabled SVE intrinsics and the CPU supports them.
         let sve = cfg!(target_feature = "sve")
             || (cfg!(simd_popcnt_have_sve) && std::arch::is_aarch64_feature_detected!("sve"));
         if sve { "ARM SVE" } else { "ARM NEON" }
