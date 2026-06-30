@@ -56,16 +56,18 @@ ARM SVE support additionally requires a nightly toolchain.
 
 ## CPU architectures
 
-`simd-popcnt` has hardware-accelerated popcount algorithms for the following CPU
-architectures:
+On the following CPU architectures `simd-popcnt` dispatches at runtime to the
+fastest instruction set the CPU supports:
 
 | Architecture    | Instruction sets     |
 |-----------------|----------------------|
 | x86 / x86-64    | POPCNT, AVX2, AVX512 |
 | AArch64 (ARM64) | NEON, SVE            |
 
-For all other architectures (WebAssembly, PowerPC, RISC-V, …) a fast portable
-integer popcount algorithm is used.
+On every other architecture the count uses `u64::count_ones()`, which the
+compiler lowers to the CPU's hardware popcount instruction where the target has
+one (WebAssembly `i64.popcnt`, PowerPC `popcntd`, RISC-V `cpop` with Zbb), and to
+a portable integer sequence otherwise.
 
 ## How it works
 
