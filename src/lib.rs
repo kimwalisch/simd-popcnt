@@ -24,6 +24,8 @@
 // Enable SVE intrinsics only when build.rs confirmed they compile on this rustc.
 #![cfg_attr(simd_popcnt_have_sve, feature(stdarch_aarch64_sve))]
 
+#[cfg(target_arch = "aarch64")]
+use core::arch::aarch64::*;
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
@@ -65,6 +67,7 @@ use core::arch::x86_64::*;
 /// // The fully-safe equivalent, if you already depend on `bytemuck`:
 /// //     let bits = popcnt(bytemuck::cast_slice(data));
 /// ```
+#[must_use]
 #[inline]
 pub fn popcnt(data: &[u8]) -> u64 {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -107,6 +110,7 @@ pub fn popcnt(data: &[u8]) -> u64 {
 /// ```
 pub trait PopcntExt {
     /// Count the total number of 1 bits across all elements of the slice.
+    #[must_use]
     fn popcnt(&self) -> u64;
 }
 
@@ -521,18 +525,12 @@ fn popcnt_aarch64(data: &[u8]) -> u64 {
 
 #[cfg(target_arch = "aarch64")]
 #[inline]
-fn vpadalq(
-    sum: core::arch::aarch64::uint64x2_t,
-    t: core::arch::aarch64::uint8x16_t,
-) -> core::arch::aarch64::uint64x2_t {
-    use core::arch::aarch64::*;
+fn vpadalq(sum: uint64x2_t, t: uint8x16_t) -> uint64x2_t {
     unsafe { vpadalq_u32(sum, vpaddlq_u16(vpaddlq_u8(t))) }
 }
 
 #[cfg(target_arch = "aarch64")]
 fn popcnt_neon(data: &[u8]) -> u64 {
-    use core::arch::aarch64::*;
-
     // ── ARM SVE runtime dispatch (compiled only when build.rs probe succeeded) ─
     #[cfg(simd_popcnt_have_sve)]
     {
@@ -647,8 +645,6 @@ fn has_arm_sve() -> bool {
 #[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
 #[target_feature(enable = "sve")]
 fn popcnt_arm_sve(data: &[u8]) -> u64 {
-    use core::arch::aarch64::*;
-
     unsafe {
         let mut i = 0usize;
         let mut vcnt = svdup_n_u64(0);
