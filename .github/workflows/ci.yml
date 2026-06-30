@@ -83,3 +83,34 @@ jobs:
         run: cargo test --target wasm32-wasip1 --lib
         env:
           CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
+
+  # Run the test suite on a real AArch64 Linux CPU (the runner supports ARM SVE).
+  #  * nightly: the build.rs probe enables the SVE intrinsics, so the ARM SVE
+  #    popcount algorithm is compiled and executed (NEON otherwise).
+  #  * stable:  the probe rejects the nightly SVE feature, so the crate falls
+  #    back to the ARM NEON algorithm — this checks that fallback path.
+  # RUSTUP_TOOLCHAIN overrides the repo's rust-toolchain.toml (which pins
+  # nightly) so the stable job really uses stable.
+  arm-linux:
+    name: ARM64 Linux (${{ matrix.toolchain }})
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [nightly, stable]
+    env:
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust ${{ matrix.toolchain }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run test suite
+        run: cargo test
