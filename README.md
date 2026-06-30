@@ -20,6 +20,7 @@ simd-popcnt = "0.1"
 The core function counts the one bits in a byte slice:
 
 ```rust
+/// Returns the number of set 1-bits in a byte slice
 pub fn popcnt(data: &[u8]) -> u64
 ```
 
