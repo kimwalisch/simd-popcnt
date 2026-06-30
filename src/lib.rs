@@ -117,14 +117,9 @@ impl_popcnt_ext!(
 // Portable scalar fallbacks (available on every architecture)
 // ────────────────────────────────────────────────────────────────────────────
 
-/// Pure-integer Hamming weight of a single `u64`.
-///
-/// Uses 12 arithmetic operations (one of which is a multiply) and emits no
-/// POPCNT instruction, so it is correct on CPUs that lack hardware POPCNT.
+/// Population count of a single `u64` using only integer arithmetic, for CPUs
+/// without a hardware POPCNT instruction.
 /// <http://en.wikipedia.org/wiki/Hamming_weight#Efficient_implementation>
-///
-/// Part of the portable fallback chain; unused in fully-optimized builds (e.g.
-/// `target-cpu=native` with hardware POPCNT) and on AArch64.
 #[allow(dead_code)]
 #[inline]
 fn popcnt64_bitwise(x: u64) -> u64 {
@@ -139,9 +134,8 @@ fn popcnt64_bitwise(x: u64) -> u64 {
     x.wrapping_mul(H01) >> 56
 }
 
-/// Read up to 8 trailing bytes of `rem` (length 0..=7) into the low bytes of a
-/// `u64`, little-endian, zero-extending the rest. Mirrors the C tail loop
-/// `val |= ((uint64_t) ptr[i + j]) << (j * 8)`.
+/// Loads the trailing `rem.len()` (0..=7) bytes into the low bytes of a `u64`,
+/// little-endian, zero-extending the rest.
 #[inline]
 fn tail_u64(rem: &[u8]) -> u64 {
     let mut buf = [0u8; 8];
@@ -149,9 +143,8 @@ fn tail_u64(rem: &[u8]) -> u64 {
     u64::from_le_bytes(buf)
 }
 
-/// Scalar bit count using the pure-integer algorithm. Used as the universal
-/// fallback and on CPUs without hardware POPCNT; unused in fully-optimized
-/// x86 builds with hardware POPCNT and on AArch64.
+/// Scalar population count using the integer fallback, for CPUs without a
+/// hardware POPCNT instruction.
 #[allow(dead_code)]
 fn popcnt_scalar_bitwise(data: &[u8]) -> u64 {
     let mut cnt = 0u64;
@@ -171,14 +164,10 @@ fn popcnt_scalar_bitwise(data: &[u8]) -> u64 {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn popcnt_x86(data: &[u8]) -> u64 {
-    // ── Compile-time fast path: AVX512 statically enabled ───────────────────
-    // (e.g. `-C target-cpu=native` on an AVX512 machine, or
-    // `-C target-feature=+avx512vpopcntdq`). `popcnt_avx512` handles arrays of
-    // ANY length including the masked tail, so a complete return path exists for
-    // every size — no runtime detection and no dead code in the binary.
+    // Compile-time AVX512 path (e.g. with `-C target-cpu=native`).
     #[cfg(target_feature = "avx512vpopcntdq")]
     {
-        // For tiny arrays the AVX512 setup is not worth it.
+        // AVX512 isn't worth its setup cost for tiny arrays.
         if data.len() >= 40 {
             unsafe { popcnt_avx512(data) }
         } else {
@@ -186,12 +175,12 @@ fn popcnt_x86(data: &[u8]) -> u64 {
         }
     }
 
-    // ── Compile-time fast path: AVX2 (but not AVX512) statically enabled ─────
+    // Compile-time AVX2 path.
     #[cfg(all(target_feature = "avx2", not(target_feature = "avx512vpopcntdq")))]
     {
         let mut cnt = 0u64;
         let mut rest = data;
-        // AVX2 is only faster for arrays >= 512 bytes.
+        // AVX2 only wins for arrays >= 512 bytes.
         if data.len() >= 512 {
             let n = data.len() / 32 * 32;
             cnt += unsafe { popcnt_avx2(&data[..n]) };
@@ -200,24 +189,21 @@ fn popcnt_x86(data: &[u8]) -> u64 {
         cnt + popcnt_scalar_static(rest)
     }
 
-    // ── No compile-time SIMD: cached runtime detection ──────────────────────
+    // No SIMD enabled at compile time: detect at runtime.
     #[cfg(not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq")))]
     {
         popcnt_x86_runtime(data)
     }
 }
 
-/// Scalar bit count chosen at COMPILE TIME based on the static feature set.
-/// Used by the compile-time SIMD fast paths for small arrays and tails, so it
-/// only exists when one of those paths is compiled in.
+/// Scalar count for the compile-time SIMD paths' small arrays and tails:
+/// hardware POPCNT when statically enabled, otherwise the integer fallback.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     any(target_feature = "avx2", target_feature = "avx512vpopcntdq")
 ))]
 #[inline]
 fn popcnt_scalar_static(data: &[u8]) -> u64 {
-    // With `+popcnt` in the static feature set (always true under
-    // `target-cpu=native`), `count_ones()` lowers to a single POPCNT.
     #[cfg(target_feature = "popcnt")]
     {
         // SAFETY: `popcnt` is statically enabled for the whole crate.
@@ -229,19 +215,14 @@ fn popcnt_scalar_static(data: &[u8]) -> u64 {
     }
 }
 
-/// Cached runtime dispatch. Replaces the entire CPUID-guarded block of the C
-/// `popcnt()`. `is_x86_feature_detected!` performs CPUID once and caches the
-/// result internally, so we do not reimplement the C `libpopcnt_cpuid` global.
-///
-/// Only compiled when no SIMD feature is statically enabled — a `target-cpu`
-/// that already guarantees AVX2/AVX512 takes the zero-overhead compile-time path
-/// instead and never needs runtime detection.
+/// Runtime dispatch using cached CPU feature detection. Only compiled when no
+/// SIMD feature is statically enabled (otherwise the compile-time paths run).
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq"))
 ))]
 fn popcnt_x86_runtime(data: &[u8]) -> u64 {
-    // AVX512 handles everything, including the masked tail, in one call.
+    // AVX512: not worth its setup cost below ~40 bytes, handles any length.
     if data.len() >= 40
         && is_x86_feature_detected!("avx512f")
         && is_x86_feature_detected!("avx512bw")
@@ -253,17 +234,17 @@ fn popcnt_x86_runtime(data: &[u8]) -> u64 {
     let mut cnt = 0u64;
     let mut rest = data;
 
-    // AVX2 is only faster for arrays >= 512 bytes.
+    // AVX2 only wins for arrays >= 512 bytes.
     if data.len() >= 512 && is_x86_feature_detected!("avx2") {
         let n = data.len() / 32 * 32;
         cnt += unsafe { popcnt_avx2(&data[..n]) };
         rest = &data[n..];
     }
 
-    // Scalar tail (or the whole array if AVX2 did not fire).
-    // IMPORTANT: dispatch on POPCNT here. Without a
-    // `#[target_feature(enable = "popcnt")]` function, `count_ones()` emits a
-    // software fallback even on POPCNT-capable hardware.
+    // Scalar tail (or the whole array if AVX2 didn't fire). Dispatching on
+    // POPCNT is essential: outside a `#[target_feature(enable = "popcnt")]`
+    // function, `count_ones()` compiles to a software fallback even on
+    // POPCNT-capable CPUs.
     cnt += if is_x86_feature_detected!("popcnt") {
         unsafe { popcnt_scalar_hw(rest) }
     } else {
@@ -273,16 +254,9 @@ fn popcnt_x86_runtime(data: &[u8]) -> u64 {
     cnt
 }
 
-/// Scalar bit count using the hardware POPCNT instruction.
-///
-/// The `#[target_feature(enable = "popcnt")]` attribute is what makes
-/// `count_ones()` compile to a single `popcntq`. This function must only be
-/// called after POPCNT support has been confirmed (statically via
-/// `cfg(target_feature = "popcnt")`, or at runtime via
-/// `is_x86_feature_detected!("popcnt")`).
-///
-/// Unused only in the unusual case of a SIMD feature enabled without `popcnt`
-/// (e.g. `-C target-feature=+avx2` alone, without `+popcnt`).
+/// Scalar population count via the hardware POPCNT instruction. The
+/// `#[target_feature(enable = "popcnt")]` attribute is what lets `count_ones()`
+/// lower to a single `popcnt`; only call it once POPCNT support is confirmed.
 #[allow(dead_code)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "popcnt")]
@@ -300,10 +274,8 @@ fn popcnt_scalar_hw(data: &[u8]) -> u64 {
 
 // ── AVX2 ────────────────────────────────────────────────────────────────────
 
-/// Carry-save adder for two 256-bit lanes (one full-adder bit-slice step).
-/// Returns `(high, low)`. Returning a tuple (rather than C's out-pointers)
-/// avoids borrow conflicts when the same variable is both an input and an
-/// output, e.g. `(twos_a, ones) = csa256(ones, x, y)`.
+/// Carry-save adder: returns the `(carry, sum)` bit-planes of `a + b + c`,
+/// computed across all lanes in parallel.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     not(target_feature = "avx512vpopcntdq")
@@ -342,20 +314,17 @@ fn popcnt256(v: __m256i) -> __m256i {
     _mm256_sad_epu8(popcnt1, popcnt2)
 }
 
-/// AVX2 Harley-Seal popcount (4th iteration). Based on "Faster Population
+/// AVX2 Harley-Seal population count (4th iteration), from "Faster Population
 /// Counts using AVX2 Instructions" by Lemire, Kurz and Muła (2016),
 /// <https://arxiv.org/abs/1611.07612>.
 ///
-/// `data.len()` must be a multiple of 32 (guaranteed by the caller).
-///
-/// Referenced by the AVX2 compile-time path and by runtime dispatch; both imply
-/// AVX512 is not statically enabled, hence the `not(avx512vpopcntdq)` gate.
+/// `data.len()` must be a multiple of 32.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     not(target_feature = "avx512vpopcntdq")
 ))]
 #[target_feature(enable = "avx2")]
-// Keep the 16-vector CSA tree line-for-line with the C source for verifiability.
+// Hand-aligned: keep the 16-way CSA tree readable.
 #[rustfmt::skip]
 fn popcnt_avx2(data: &[u8]) -> u64 {
     let zero = _mm256_setzero_si256();
@@ -364,7 +333,6 @@ fn popcnt_avx2(data: &[u8]) -> u64 {
     let mut twos = zero;
     let mut fours = zero;
     let mut eights = zero;
-    // Per-iteration temporaries (deferred init; always written before read).
     let mut twos_a;
     let mut twos_b;
     let mut fours_a;
@@ -373,8 +341,7 @@ fn popcnt_avx2(data: &[u8]) -> u64 {
     let mut eights_b;
     let mut sixteens;
 
-    // 16-vector (512-byte) Harley-Seal loop. `as_chunks::<512>()` yields
-    // `&[u8; 512]` blocks, so `p.add(0)..=p.add(15)` are provably in bounds.
+    // 16 vectors (512 bytes) per iteration.
     let (blocks, tail) = data.as_chunks::<512>();
     for chunk in blocks {
         let p = chunk.as_ptr() as *const __m256i;
@@ -404,29 +371,23 @@ fn popcnt_avx2(data: &[u8]) -> u64 {
     cnt = _mm256_add_epi64(cnt, _mm256_slli_epi64(popcnt256(twos), 1));
     cnt = _mm256_add_epi64(cnt, popcnt256(ones));
 
-    // Single-vector tail: the 0..=15 complete 32-byte vectors not covered by the
-    // 512-byte loop. `tail` is a multiple of 32 (the caller passed a
-    // multiple-of-32 length), so nothing is left over.
+    // Remaining whole 32-byte vectors.
     let (vecs, _) = tail.as_chunks::<32>();
     for chunk in vecs {
         let v = unsafe { _mm256_loadu_si256(chunk.as_ptr() as *const __m256i) };
         cnt = _mm256_add_epi64(cnt, popcnt256(v));
     }
 
-    // Horizontal sum of the four u64 lanes.
+    // Sum the four 64-bit lanes.
     let lanes: [u64; 4] = unsafe { core::mem::transmute(cnt) };
     lanes[0] + lanes[1] + lanes[2] + lanes[3]
 }
 
 // ── AVX512 ──────────────────────────────────────────────────────────────────
 
-/// AVX512-VPOPCNTDQ popcount. Handles arrays of any length: a 4×-unrolled
-/// 256-byte loop, then a 64-byte loop, then a masked load for the final 1..=63
-/// bytes.
-///
-/// Referenced by the AVX512 compile-time path and by runtime dispatch. Runtime
-/// dispatch only exists when AVX2 is not statically enabled, so the gate is
-/// "AVX512 statically enabled, or AVX2 not statically enabled".
+/// AVX512-VPOPCNTDQ population count, handling any length: a 4×-unrolled
+/// 256-byte loop, then a 64-byte loop, then a masked load for the final
+/// 1..=63 bytes.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     any(not(target_feature = "avx2"), target_feature = "avx512vpopcntdq")
@@ -461,8 +422,7 @@ fn popcnt_avx512(data: &[u8]) -> u64 {
     // Masked load for the final 1..=63 bytes.
     if !tail64.is_empty() {
         let len = tail64.len();
-        // Mask with `len` low bits set. Equivalent to the C
-        // `(__mmask64)(0xffffffffffffffff >> (i + 64 - size))`.
+        // Mask covering the final `len` bytes.
         let mask = (u64::MAX >> (64 - len)) as __mmask64;
         unsafe {
             let v = _mm512_maskz_loadu_epi8(mask, tail64.as_ptr() as *const _);
@@ -479,15 +439,13 @@ fn popcnt_avx512(data: &[u8]) -> u64 {
 
 #[cfg(target_arch = "aarch64")]
 fn popcnt_aarch64(data: &[u8]) -> u64 {
-    // Compile-time: SVE statically enabled (e.g. `-C target-feature=+sve`) and
-    // the toolchain provides SVE intrinsics.
+    // Compile-time SVE path.
     #[cfg(all(target_feature = "sve", simd_popcnt_have_sve))]
     {
         unsafe { popcnt_arm_sve(data) }
     }
 
-    // NEON is mandatory on all AArch64 CPUs. `popcnt_neon` performs SVE runtime
-    // dispatch internally when `simd_popcnt_have_sve` is set.
+    // NEON baseline; `popcnt_neon` dispatches to SVE at runtime when available.
     #[cfg(not(all(target_feature = "sve", simd_popcnt_have_sve)))]
     {
         popcnt_neon(data)
@@ -502,15 +460,11 @@ fn vpadalq(sum: uint64x2_t, t: uint8x16_t) -> uint64x2_t {
 
 #[cfg(target_arch = "aarch64")]
 fn popcnt_neon(data: &[u8]) -> u64 {
-    // ── ARM SVE runtime dispatch (compiled only when build.rs probe succeeded) ─
+    // Runtime SVE dispatch (present only when the build probe enabled SVE).
     #[cfg(simd_popcnt_have_sve)]
     {
-        // Cached SVE detection, the equivalent of the C `libpopcnt_arm_sve`
-        // global. Unlike C, no `simd_popcnt_` name prefix is needed: this
-        // static is private to the function and cannot collide with user or
-        // third-party symbols. Relaxed ordering is correct: the value is
-        // idempotent (all threads compute the same result) and guards no
-        // other data.
+        // Cached SVE support (-1 = unknown). Relaxed ordering is fine: the
+        // value is idempotent and guards no other data.
         use core::sync::atomic::{AtomicI32, Ordering};
         static SVE_SUPPORT: AtomicI32 = AtomicI32::new(-1);
         let cached = SVE_SUPPORT.load(Ordering::Relaxed);
@@ -526,7 +480,7 @@ fn popcnt_neon(data: &[u8]) -> u64 {
         }
     }
 
-    // ── NEON path ───────────────────────────────────────────────────────────
+    // NEON path.
     const CHUNK: usize = 64;
     let mut cnt = 0u64;
     let iters = data.len() / CHUNK;
@@ -568,8 +522,8 @@ fn popcnt_neon(data: &[u8]) -> u64 {
         }
     }
 
-    // Scalar tail. On AArch64 `count_ones()` always lowers to the NEON `cnt`
-    // sequence, so no separate POPCNT runtime check is needed.
+    // Scalar tail. On AArch64 `count_ones()` always lowers to NEON `cnt`, so no
+    // POPCNT runtime check is needed here.
     let rest = &data[iters * CHUNK..];
     let (chunks, rem) = rest.as_chunks::<8>();
     for chunk in chunks {
@@ -587,17 +541,14 @@ fn popcnt_neon(data: &[u8]) -> u64 {
 fn has_arm_sve() -> bool {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
-        // `libc` provides `HWCAP_SVE`, so the C library's `<asm/hwcap.h>`
-        // workaround (defining `1 << 22` literally) is unnecessary here.
         let hwcaps = unsafe { libc::getauxval(libc::AT_HWCAP) };
         hwcaps & libc::HWCAP_SVE != 0
     }
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::System::Threading::IsProcessorFeaturePresent;
-        // windows-sys 0.59 does not define PF_ARM_SVE_INSTRUCTIONS_AVAILABLE yet
-        // (its Win32 metadata predates the constant), so use the literal value
-        // 39 — the same situation the C library handles for older Windows SDKs.
+        // windows-sys 0.59 doesn't define PF_ARM_SVE_INSTRUCTIONS_AVAILABLE (39)
+        // yet, so use the literal value.
         const PF_ARM_SVE_INSTRUCTIONS_AVAILABLE: u32 = 39;
         unsafe { IsProcessorFeaturePresent(PF_ARM_SVE_INSTRUCTIONS_AVAILABLE) != 0 }
     }
@@ -607,9 +558,8 @@ fn has_arm_sve() -> bool {
     }
 }
 
-/// ARM SVE popcount. Gated by both `simd_popcnt_have_sve` (intrinsics compile on
-/// this rustc) and `#[target_feature(enable = "sve")]` (SVE instructions are
-/// generated even without `-C target-feature=+sve`).
+/// SVE population count: a 4×-unrolled main loop over full vectors, then a
+/// predicated tail loop that needs no separate scalar remainder.
 #[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
 #[target_feature(enable = "sve")]
 fn popcnt_arm_sve(data: &[u8]) -> u64 {
@@ -633,8 +583,8 @@ fn popcnt_arm_sve(data: &[u8]) -> u64 {
             i += vl * 4;
         }
 
-        // Predicated tail loop. `svld1_u8` with a tail predicate zero-fills the
-        // inactive lanes, so no separate byte-by-byte tail is needed.
+        // Predicated tail: the load zero-fills inactive lanes, so no separate
+        // scalar remainder is needed.
         let mut pg = svwhilelt_b8_u64(i as u64, len as u64);
         while svptest_any(svptrue_b8(), pg) {
             let v = svreinterpret_u64_u8(svld1_u8(pg, ptr.add(i)));
@@ -761,16 +711,13 @@ mod tests {
         }
     }
 
-    /// Faithful port of `libpopcnt/test/test1.cpp` (and the identical `test2.c`):
-    /// count `popcnt()` of every suffix `data[i..]` and verify against an
-    /// independent byte-wise reference. The sweep covers every length from 0 up
-    /// to the array size, each at a shifting start offset, so length and
-    /// alignment both vary across the run.
+    /// Verify `popcnt()` of every suffix `data[i..]` against an independent
+    /// byte-wise reference, covering every length and a range of start
+    /// alignments in one sweep.
     ///
     /// Size defaults to 20_000 to keep `cargo test` fast — the sweep is O(n²) in
-    /// the work `popcnt` performs. Override with the `SIMD_POPCNT_TEST_SIZE`
-    /// environment variable for a heavier run matching the C test's default,
-    /// e.g. `SIMD_POPCNT_TEST_SIZE=100000 cargo test --release suffix_sweep`.
+    /// the work `popcnt` performs. Override with `SIMD_POPCNT_TEST_SIZE` for a
+    /// heavier run, e.g. `SIMD_POPCNT_TEST_SIZE=100000 cargo test --release suffix_sweep`.
     #[test]
     fn suffix_sweep() {
         let size = std::env::var("SIMD_POPCNT_TEST_SIZE")
@@ -778,12 +725,11 @@ mod tests {
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(20_000);
 
-        // All-ones array (matches test1.cpp's initial check).
+        // All-ones array.
         let ones = vec![0xFFu8; size];
         check_all_suffixes(&ones);
 
-        // Deterministic pseudo-random array. The C test seeds with time(0);
-        // a fixed xorshift seed instead keeps any failure reproducible.
+        // Deterministic pseudo-random array (fixed seed → reproducible failures).
         let mut state: u64 = 0x2545_F491_4F6C_DD1D;
         let mut data = vec![0u8; size];
         for b in data.iter_mut() {
@@ -795,9 +741,8 @@ mod tests {
         check_all_suffixes(&data);
     }
 
-    /// Assert `popcnt(&data[i..])` for every `i`, against an O(1) prefix-sum
-    /// reference built from `popcnt64_bitwise` per byte — the same independent
-    /// oracle `test1.cpp` uses. Only `popcnt` itself does O(n) work per suffix.
+    /// Assert `popcnt(&data[i..])` for every `i` against an O(1) prefix-sum
+    /// reference, so only `popcnt` itself does O(n) work per suffix.
     fn check_all_suffixes(data: &[u8]) {
         let total: u64 = data.iter().map(|&b| popcnt64_bitwise(b as u64)).sum();
         let mut prefix = 0u64; // popcount of data[..i]
