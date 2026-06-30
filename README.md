@@ -6,8 +6,7 @@
 population count, a.k.a. Hamming weight) in an array as quickly as possible
 using specialized CPU instructions: POPCNT, AVX2, AVX512, ARM NEON and ARM SVE.
 
-It is an AI-assisted Rust port of the C/C++ header-only library
-[libpopcnt](https://github.com/kimwalisch/libpopcnt) by Kim Walisch.
+It is an AI-assisted Rust port of the [C/C++ libpopcnt library](https://github.com/kimwalisch/libpopcnt).
 
 ## API
 
