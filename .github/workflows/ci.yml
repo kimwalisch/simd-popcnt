@@ -96,15 +96,17 @@ jobs:
   #    popcount algorithm is compiled and executed (NEON otherwise).
   #  * stable:  the probe rejects the nightly SVE feature, so the crate falls
   #    back to the ARM NEON algorithm — this checks that fallback path.
+  # The release jobs also run the benchmark, reporting ARM SVE / NEON throughput.
   # RUSTUP_TOOLCHAIN overrides the repo's rust-toolchain.toml (which pins
   # nightly) so the stable job really uses stable.
   arm-linux:
-    name: ARM64 Linux (${{ matrix.toolchain }})
+    name: ARM64 Linux (${{ matrix.toolchain }}, ${{ matrix.profile }})
     runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
       matrix:
         toolchain: [nightly, stable]
+        profile: [debug, release]
     env:
       RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
     steps:
@@ -120,4 +122,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run test suite
-        run: cargo test
+        run: cargo test ${{ matrix.profile == 'release' && '--release' || '' }}
+
+      # In release mode, also run the benchmark (default args) so the ARM SVE
+      # (nightly) and ARM NEON (stable) throughput is reported in the logs.
+      - name: Run benchmark
+        if: matrix.profile == 'release'
+        run: cargo run --release --example benchmark
