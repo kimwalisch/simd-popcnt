@@ -117,13 +117,14 @@ impl_popcnt_ext!(
 // Portable scalar fallbacks (available on every architecture)
 // ────────────────────────────────────────────────────────────────────────────
 
-/// Loads the trailing `rem.len()` (0..=7) bytes into the low bytes of a `u64`,
-/// little-endian, zero-extending the rest.
+/// Packs the trailing `rem.len()` (0..=7) bytes into a zero-padded `u64` for
+/// counting. Uses native byte order (the popcount is order-independent), which
+/// avoids a byte swap on big-endian targets.
 #[inline]
 fn tail_u64(rem: &[u8]) -> u64 {
     let mut buf = [0u8; 8];
     buf[..rem.len()].copy_from_slice(rem);
-    u64::from_le_bytes(buf)
+    u64::from_ne_bytes(buf)
 }
 
 /// Scalar population count loop, summing `count_ones()` over 8-byte chunks.
@@ -136,7 +137,7 @@ macro_rules! popcnt_scalar_loop {
         let mut cnt = 0u64;
         let (chunks, rem) = $bytes.as_chunks::<8>();
         for chunk in chunks {
-            cnt += u64::from_le_bytes(*chunk).count_ones() as u64;
+            cnt += u64::from_ne_bytes(*chunk).count_ones() as u64;
         }
         if !rem.is_empty() {
             cnt += tail_u64(rem).count_ones() as u64;
