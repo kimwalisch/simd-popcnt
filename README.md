@@ -106,12 +106,12 @@ cargo test
 ```
 
 The crate ships a `benchmark` example for measuring popcount throughput on your
-CPU. For meaningful numbers, build it in release mode with `-C target-cpu=native`
-so the best algorithm is selected at compile time:
+CPU. Build it in release mode; the fastest algorithm is selected automatically
+at runtime:
 
 ```bash
 # Usage: cargo run --release --example benchmark [array_bytes] [iters]
-RUSTFLAGS="-C target-cpu=native" cargo run --release --example benchmark
+cargo run --release --example benchmark
 ```
 
 Below is a run on an Intel Core Ultra 5 245K CPU:
@@ -121,8 +121,8 @@ Iters: 10000000
 Array size: 16.00 KB
 Algorithm: AVX2
 Status: 100%
-Seconds: 1.86
-88.0 GB/s
+Seconds: 1.91
+85.6 GB/s
 ```
 
 ## Minimum supported Rust version
