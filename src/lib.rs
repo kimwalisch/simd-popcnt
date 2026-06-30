@@ -18,8 +18,8 @@
 //!
 //! For the fastest possible code, compile with `RUSTFLAGS="-C target-cpu=native"`.
 //! This lets the crate select the best SIMD path at compile time with zero
-//! runtime dispatch overhead. Without it, the best available instruction set is
-//! detected at runtime (cached after the first call), exactly like the C library.
+//! runtime dispatch overhead. Otherwise the best available instruction set is
+//! detected once at runtime and cached.
 
 // Enable SVE intrinsics only when build.rs confirmed they compile on this rustc.
 #![cfg_attr(simd_popcnt_have_sve, feature(stdarch_aarch64_sve))]
@@ -31,41 +31,19 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-/// Count the number of 1 bits (set bits) in `data`.
+/// Counts the number of one bits (population count) across all bytes of `data`.
 ///
-/// This is the single public entry point. It dispatches to the fastest
-/// implementation available for the target architecture and CPU.
+/// Dispatches to the fastest implementation for the running CPU: SIMD where
+/// available, a scalar fallback otherwise.
+///
+/// To count the bits in a slice of a wider integer type (`&[u64]`, `&[u32]`, …),
+/// use the [`PopcntExt::popcnt`] method rather than converting to bytes by hand.
 ///
 /// # Examples
 ///
 /// ```
 /// assert_eq!(simd_popcnt::popcnt(&[]), 0);
-/// assert_eq!(simd_popcnt::popcnt(&[0xFF]), 8);
-/// assert_eq!(simd_popcnt::popcnt(&[0b1010_1010, 0b0000_0001]), 5);
-/// ```
-///
-/// # Counting bits in a non-byte slice
-///
-/// `popcnt` takes `&[u8]`, the natural unit for a bit count. To count the 1
-/// bits in a `&[u64]` (or any slice of plain integers) reinterpret it as bytes
-/// first — the analog of C's `popcnt(arr, len * sizeof(uint64_t))`. Population
-/// count is independent of byte order, so this is correct on both little- and
-/// big-endian targets.
-///
-/// ```
-/// use simd_popcnt::popcnt;
-///
-/// let data: &[u64] = &[u64::MAX, 0x0F0F_0F0F_0F0F_0F0F];
-///
-/// // No-dependency view of the data as bytes. Sound because `u64` has no
-/// // padding bytes and `u8`'s alignment (1) is always satisfied.
-/// let bytes = unsafe {
-///     core::slice::from_raw_parts(data.as_ptr().cast::<u8>(), core::mem::size_of_val(data))
-/// };
-/// assert_eq!(popcnt(bytes), 64 + 32);
-///
-/// // The fully-safe equivalent, if you already depend on `bytemuck`:
-/// //     let bits = popcnt(bytemuck::cast_slice(data));
+/// assert_eq!(simd_popcnt::popcnt(&[0xFF, 0x0F]), 12);
 /// ```
 #[must_use]
 #[inline]
@@ -90,23 +68,17 @@ pub fn popcnt(data: &[u8]) -> u64 {
 // Ergonomic extension trait for integer slices
 // ────────────────────────────────────────────────────────────────────────────
 
-/// Adds a [`popcnt`](PopcntExt::popcnt) method to slices of the built-in
-/// integer types, so you can count bits without reinterpreting the slice as
-/// bytes by hand. This is Rust's equivalent of C++ overloading: one method
-/// name, implemented for every integer slice type.
-///
-/// Bring it into scope with `use simd_popcnt::PopcntExt;`. It works on slices,
+/// Adds a [`popcnt`](PopcntExt::popcnt) method to slices of the built-in integer
+/// types, counting their bits without a manual byte cast. Implemented for slices,
 /// arrays and `Vec`s of `u8`/`u16`/`u32`/`u64`/`u128`/`usize` and their signed
-/// counterparts.
+/// counterparts; bring it into scope with `use simd_popcnt::PopcntExt;`.
 ///
 /// ```
 /// use simd_popcnt::PopcntExt;
 ///
 /// let words: &[u64] = &[u64::MAX, 0x0F0F_0F0F_0F0F_0F0F];
 /// assert_eq!(words.popcnt(), 64 + 32);
-///
-/// assert_eq!([0xFFu8; 4].popcnt(), 32); // array
-/// assert_eq!(vec![1u32, 2, 3].popcnt(), 4); // Vec
+/// assert_eq!(vec![1u32, 2, 3].popcnt(), 4);
 /// ```
 pub trait PopcntExt {
     /// Count the total number of 1 bits across all elements of the slice.
@@ -122,10 +94,9 @@ macro_rules! impl_popcnt_ext {
         impl PopcntExt for [$t] {
             #[inline]
             fn popcnt(&self) -> u64 {
-                // SAFETY: `$t` is a built-in integer type — no padding bytes,
-                // every bit pattern valid — and `u8`'s alignment of 1 is always
-                // satisfied, so the slice is soundly viewed as `size_of_val`
-                // bytes for the lifetime of the borrow.
+                // SAFETY: `$t` is a plain integer (no padding, every bit pattern
+                // valid) and `u8` is always 1-aligned, so the slice is a valid
+                // `&[u8]` of `size_of_val` bytes.
                 let bytes = unsafe {
                     core::slice::from_raw_parts(
                         self.as_ptr().cast::<u8>(),
