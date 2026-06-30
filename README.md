@@ -14,7 +14,7 @@ This is a Rust port of the C/C++ header-only library
 
 ## API
 
-The entire public API is a single function:
+The core is a single function over bytes:
 
 ```rust
 pub fn popcnt(data: &[u8]) -> u64
@@ -26,6 +26,17 @@ use simd_popcnt::popcnt;
 assert_eq!(popcnt(&[]), 0);
 assert_eq!(popcnt(&[0xFF]), 8);
 assert_eq!(popcnt(&[0b1010_1010, 0b0000_0001]), 5);
+```
+
+For convenience, the `PopcntExt` trait adds a `.popcnt()` method to slices,
+arrays and `Vec`s of any built-in integer type (no manual byte cast needed):
+
+```rust
+use simd_popcnt::PopcntExt;
+
+let words: &[u64] = &[u64::MAX, 0x0F0F_0F0F_0F0F_0F0F];
+assert_eq!(words.popcnt(), 64 + 32);
+assert_eq!([1u32, 2, 3].popcnt(), 4);
 ```
 
 ## Performance

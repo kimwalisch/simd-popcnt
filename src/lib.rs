@@ -41,6 +41,30 @@ use core::arch::x86_64::*;
 /// assert_eq!(simd_popcnt::popcnt(&[0xFF]), 8);
 /// assert_eq!(simd_popcnt::popcnt(&[0b1010_1010, 0b0000_0001]), 5);
 /// ```
+///
+/// # Counting bits in a non-byte slice
+///
+/// `popcnt` takes `&[u8]`, the natural unit for a bit count. To count the 1
+/// bits in a `&[u64]` (or any slice of plain integers) reinterpret it as bytes
+/// first — the analog of C's `popcnt(arr, len * sizeof(uint64_t))`. Population
+/// count is independent of byte order, so this is correct on both little- and
+/// big-endian targets.
+///
+/// ```
+/// use simd_popcnt::popcnt;
+///
+/// let data: &[u64] = &[u64::MAX, 0x0F0F_0F0F_0F0F_0F0F];
+///
+/// // No-dependency view of the data as bytes. Sound because `u64` has no
+/// // padding bytes and `u8`'s alignment (1) is always satisfied.
+/// let bytes = unsafe {
+///     core::slice::from_raw_parts(data.as_ptr().cast::<u8>(), core::mem::size_of_val(data))
+/// };
+/// assert_eq!(popcnt(bytes), 64 + 32);
+///
+/// // The fully-safe equivalent, if you already depend on `bytemuck`:
+/// //     let bits = popcnt(bytemuck::cast_slice(data));
+/// ```
 #[inline]
 pub fn popcnt(data: &[u8]) -> u64 {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -58,6 +82,61 @@ pub fn popcnt(data: &[u8]) -> u64 {
         popcnt_scalar_bitwise(data)
     }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Ergonomic extension trait for integer slices
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Adds a [`popcnt`](PopcntExt::popcnt) method to slices of the built-in
+/// integer types, so you can count bits without reinterpreting the slice as
+/// bytes by hand. This is Rust's equivalent of C++ overloading: one method
+/// name, implemented for every integer slice type.
+///
+/// Bring it into scope with `use simd_popcnt::PopcntExt;`. It works on slices,
+/// arrays and `Vec`s of `u8`/`u16`/`u32`/`u64`/`u128`/`usize` and their signed
+/// counterparts.
+///
+/// ```
+/// use simd_popcnt::PopcntExt;
+///
+/// let words: &[u64] = &[u64::MAX, 0x0F0F_0F0F_0F0F_0F0F];
+/// assert_eq!(words.popcnt(), 64 + 32);
+///
+/// assert_eq!([0xFFu8; 4].popcnt(), 32); // array
+/// assert_eq!(vec![1u32, 2, 3].popcnt(), 4); // Vec
+/// ```
+pub trait PopcntExt {
+    /// Count the total number of 1 bits across all elements of the slice.
+    fn popcnt(&self) -> u64;
+}
+
+/// Implement [`PopcntExt`] for `[$t]` by viewing the slice as bytes and
+/// delegating to [`popcnt`]. Population count is byte-order independent, so this
+/// is correct on both little- and big-endian targets.
+macro_rules! impl_popcnt_ext {
+    ($($t:ty),+ $(,)?) => {$(
+        impl PopcntExt for [$t] {
+            #[inline]
+            fn popcnt(&self) -> u64 {
+                // SAFETY: `$t` is a built-in integer type — no padding bytes,
+                // every bit pattern valid — and `u8`'s alignment of 1 is always
+                // satisfied, so the slice is soundly viewed as `size_of_val`
+                // bytes for the lifetime of the borrow.
+                let bytes = unsafe {
+                    core::slice::from_raw_parts(
+                        self.as_ptr().cast::<u8>(),
+                        core::mem::size_of_val(self),
+                    )
+                };
+                popcnt(bytes)
+            }
+        }
+    )+};
+}
+
+impl_popcnt_ext!(
+    u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize
+);
 
 // ────────────────────────────────────────────────────────────────────────────
 // Portable scalar fallbacks (available on every architecture)
@@ -644,6 +723,44 @@ mod tests {
             let val = 1u64 << bit;
             assert_eq!(popcnt(&val.to_le_bytes()), 1, "bit={bit}");
         }
+    }
+
+    /// `PopcntExt::popcnt` on each integer width must equal the per-element
+    /// `count_ones()` sum (an oracle independent of the byte reinterpretation).
+    #[test]
+    fn ext_trait_widths() {
+        let u8s: &[u8] = &[0xFF, 0x0F, 0x00, 0xAB, 0x01];
+        assert_eq!(
+            u8s.popcnt(),
+            u8s.iter().map(|x| x.count_ones() as u64).sum()
+        );
+
+        let u16s: &[u16] = &[0xFFFF, 0x0F0F, 0x1234, 0];
+        assert_eq!(
+            u16s.popcnt(),
+            u16s.iter().map(|x| x.count_ones() as u64).sum()
+        );
+
+        let u32s: &[u32] = &[u32::MAX, 0, 0x8000_0001];
+        assert_eq!(
+            u32s.popcnt(),
+            u32s.iter().map(|x| x.count_ones() as u64).sum()
+        );
+
+        let u64s: &[u64] = &[u64::MAX, 0x0F0F_0F0F_0F0F_0F0F, 0];
+        assert_eq!(
+            u64s.popcnt(),
+            u64s.iter().map(|x| x.count_ones() as u64).sum()
+        );
+
+        // Signed types and arrays resolve through the same impls (the doc
+        // example covers `Vec`).
+        let i32s = [-1i32, 0, 1, i32::MIN];
+        assert_eq!(
+            i32s.popcnt(),
+            i32s.iter().map(|x| x.count_ones() as u64).sum()
+        );
+        assert_eq!([u128::MAX, 0].popcnt(), 128);
     }
 
     /// Sweep every boundary-relevant size against the byte-wise reference using
