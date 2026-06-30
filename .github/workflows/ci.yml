@@ -17,12 +17,13 @@ env:
 
 jobs:
   test:
-    name: Test on ${{ matrix.os }}
+    name: Test on ${{ matrix.os }} (${{ matrix.profile }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        profile: [debug, release]
 
     steps:
       - name: Checkout
@@ -38,22 +39,28 @@ jobs:
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
 
-      # Formatting is platform-independent, so check it once.
+      # Formatting is profile- and platform-independent, so check it just once.
       - name: Check formatting
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'debug'
         run: cargo fmt --check
 
-      # Clippy is Rust's deeper linter — the analog of -Wextra/-pedantic. Run it
-      # per-OS so both the x86 and AArch64 code paths get linted. `-D warnings`
-      # (from the env, plus the explicit flag) fails the build on any lint.
+      # Clippy is profile-independent; run it once per OS (in the debug job) so
+      # both the x86 and AArch64 code paths get linted. `-D warnings` (from the
+      # env, plus the explicit flag) fails the build on any lint.
       - name: Clippy
+        if: matrix.profile == 'debug'
         run: cargo clippy --all-targets -- -D warnings
 
-      # Default build settings (no target-cpu=native): exercises the cached
-      # runtime CPU-feature dispatch. `cargo test` also runs the doctests and
-      # compiles the `benchmark` example.
+      # Debug enables overflow checks and debug_assertions; release exercises the
+      # optimized code. `cargo test` also runs the doctests and compiles the
+      # `benchmark` example.
       - name: Run test suite
-        run: cargo test
+        run: cargo test ${{ matrix.profile == 'release' && '--release' || '' }}
+
+      # In release mode, also smoke-test the benchmark example (default args).
+      - name: Run benchmark
+        if: matrix.profile == 'release'
+        run: cargo run --release --example benchmark
 
   wasm:
     name: WebAssembly (wasm32-wasip1)
