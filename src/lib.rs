@@ -345,6 +345,7 @@ fn popcnt_avx2(data: &[u8]) -> u64 {
     let (blocks, tail) = data.as_chunks::<512>();
     for chunk in blocks {
         let p = chunk.as_ptr() as *const __m256i;
+        // SAFETY: `chunk` is 512 bytes, so all 16 loads (32 bytes each) are in bounds.
         unsafe {
             (twos_a, ones) = csa256(ones, _mm256_loadu_si256(p.add(0)), _mm256_loadu_si256(p.add(1)));
             (twos_b, ones) = csa256(ones, _mm256_loadu_si256(p.add(2)), _mm256_loadu_si256(p.add(3)));
@@ -379,6 +380,7 @@ fn popcnt_avx2(data: &[u8]) -> u64 {
     }
 
     // Sum the four 64-bit lanes.
+    // SAFETY: `__m256i` and `[u64; 4]` are both 32 bytes with no invalid bit patterns.
     let lanes: [u64; 4] = unsafe { core::mem::transmute(cnt) };
     lanes[0] + lanes[1] + lanes[2] + lanes[3]
 }
@@ -400,6 +402,7 @@ fn popcnt_avx512(data: &[u8]) -> u64 {
     let (blocks, tail256) = data.as_chunks::<256>();
     for chunk in blocks {
         let p = chunk.as_ptr();
+        // SAFETY: `chunk` is 256 bytes, so the four 64-byte loads are in bounds.
         unsafe {
             let v0 = _mm512_loadu_si512(p.add(0) as *const _);
             let v1 = _mm512_loadu_si512(p.add(64) as *const _);
@@ -424,6 +427,8 @@ fn popcnt_avx512(data: &[u8]) -> u64 {
         let len = tail64.len();
         // Mask covering the final `len` bytes.
         let mask = (u64::MAX >> (64 - len)) as __mmask64;
+        // SAFETY: the mask selects only the `len` valid bytes; masked-off lanes
+        // are not accessed.
         unsafe {
             let v = _mm512_maskz_loadu_epi8(mask, tail64.as_ptr() as *const _);
             cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v));
@@ -487,6 +492,8 @@ fn popcnt_neon(data: &[u8]) -> u64 {
     let ptr = data.as_ptr();
 
     if iters > 0 {
+        // SAFETY: `iters = len / 64`, so every `vld4q_u8` at `i * 64` (i < iters)
+        // reads 64 in-bounds bytes; the final store targets a local array.
         unsafe {
             let mut sum = vdupq_n_u64(0);
             let zero = vdupq_n_u8(0);
@@ -563,6 +570,8 @@ fn has_arm_sve() -> bool {
 #[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
 #[target_feature(enable = "sve")]
 fn popcnt_arm_sve(data: &[u8]) -> u64 {
+    // SAFETY: the loop bound keeps each full load within `len`; the tail loop's
+    // predicate masks off any lanes past the end.
     unsafe {
         let mut i = 0usize;
         let mut vcnt = svdup_n_u64(0);
