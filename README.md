@@ -1,97 +1,134 @@
 # simd-popcnt
 
-A fast Rust library for counting the number of 1 bits (bit population count,
-a.k.a. Hamming weight) in a byte slice, using specialized CPU instructions:
+[![CI](https://github.com/kimwalisch/simd-popcnt/actions/workflows/ci.yml/badge.svg)](https://github.com/kimwalisch/simd-popcnt/actions/workflows/ci.yml)
 
-| Architecture | Instruction sets used |
-|--------------|-----------------------|
-| x86 / x86-64 | POPCNT, AVX2 (Harley-Seal), AVX512-VPOPCNTDQ |
-| AArch64      | NEON (mandatory), SVE (runtime-detected) |
-| other        | portable pure-integer fallback |
+`simd-popcnt` is a Rust library for counting the number of 1 bits (bit
+population count, a.k.a. Hamming weight) in an array as quickly as possible
+using specialized CPU instructions: POPCNT, AVX2, AVX512, ARM NEON and ARM SVE.
 
-This is a Rust port of the C/C++ header-only library
+It is an AI-assisted Rust port of the C/C++ header-only library
 [libpopcnt](https://github.com/kimwalisch/libpopcnt) by Kim Walisch.
 
 ## API
 
-The core is a single function over bytes:
+Add the crate to your `Cargo.toml`:
+
+```toml
+[dependencies]
+simd-popcnt = "0.1"
+```
+
+The core function counts the one bits in a byte slice:
 
 ```rust
 pub fn popcnt(data: &[u8]) -> u64
 ```
 
-```rust
-use simd_popcnt::popcnt;
-
-assert_eq!(popcnt(&[]), 0);
-assert_eq!(popcnt(&[0xFF]), 8);
-assert_eq!(popcnt(&[0b1010_1010, 0b0000_0001]), 5);
-```
-
-For convenience, the `PopcntExt` trait adds a `.popcnt()` method to slices,
-arrays and `Vec`s of any built-in integer type (no manual byte cast needed):
+The `PopcntExt` trait adds a `.popcnt()` method to slices, arrays and `Vec`s of
+every built-in integer type (`u8`–`u128`, `i8`–`i128`, `usize`, `isize`), so you
+can count the bits in any integer array directly, without converting it to bytes
+by hand:
 
 ```rust
-use simd_popcnt::PopcntExt;
+use simd_popcnt::{popcnt, PopcntExt};
 
-let words: &[u64] = &[u64::MAX, 0x0F0F_0F0F_0F0F_0F0F];
-assert_eq!(words.popcnt(), 64 + 32);
-assert_eq!([1u32, 2, 3].popcnt(), 4);
+// Byte slice — the core function:
+assert_eq!(popcnt(&[0xFF, 0x0F]), 12);
+
+// Wider integer types via the `PopcntExt::popcnt` method:
+assert_eq!([u64::MAX, 0x0F0F_0F0F_0F0F_0F0F].popcnt(), 96); // [u64; 2]
+assert_eq!([0xFFFFu16, 0x00FF, 0x0001].popcnt(), 25);       // [u16; 3]
+assert_eq!(vec![1u32, 2, 3, 4].popcnt(), 5);                // Vec<u32>
+
+let data: &[u64] = &[1, 2, 3];
+assert_eq!(data.popcnt(), 4);                               // &[u64]
+
+// Text: count the set bits in a string's UTF-8 bytes.
+assert_eq!("hello".as_bytes().popcnt(), 21);
 ```
 
-## Performance
+Population count is independent of byte order, so `.popcnt()` gives the same
+result on little- and big-endian targets.
 
-By default the crate detects the best available instruction set **at runtime**
-(via `is_x86_feature_detected!` / `is_aarch64_feature_detected!`), caching the
-result after the first call — exactly like the C library.
+## CPU architectures
 
-For the fastest possible code, build with:
+`simd-popcnt` has hardware-accelerated popcount algorithms for the following CPU
+architectures:
 
-```sh
-RUSTFLAGS="-C target-cpu=native" cargo build --release
-```
+| Architecture    | Instruction sets     |
+|-----------------|----------------------|
+| x86 / x86-64    | POPCNT, AVX2, AVX512 |
+| AArch64 (ARM64) | NEON, SVE            |
 
-This selects the best SIMD path **at compile time** with zero runtime-dispatch
-overhead, mirroring `-march=native` in the C library.
-
-## Benchmarking
-
-A command-line benchmark ships as an example (a developer tool — it is not built
-when you depend on the crate). Measure throughput on your CPU with:
-
-```sh
-RUSTFLAGS="-C target-cpu=native" cargo run --release --example benchmark [array_bytes] [iters]
-```
-
-It prints the selected kernel and GB/s. Defaults: 16 KiB array, 10,000,000
-iterations.
+For all other architectures (WebAssembly, PowerPC, RISC-V, …) a fast portable
+integer popcount algorithm is used.
 
 ## How it works
 
-* **Compile-time dispatch** — when a feature such as `avx2` or
-  `avx512vpopcntdq` is in the static target feature set, `popcnt` calls the
-  matching SIMD kernel directly with no runtime check (`#[cfg(target_feature)]`).
-* **Runtime dispatch** — otherwise it probes the CPU once and caches the result.
-* **Scalar POPCNT** — the scalar hot loop lives in a
-  `#[target_feature(enable = "popcnt")]` function so that `u64::count_ones()`
-  lowers to a hardware `popcnt` instruction (without it, LLVM emits a slow
-  software sequence on runtime-detected CPUs — the same pitfall
-  `__builtin_popcountll` has in C without `-mpopcnt`).
-* **Bounds-check elimination** — hot loops use `slice::as_chunks::<N>()` so the
-  compiler can prove SIMD loads are in bounds without `unsafe` indexing.
+On x86 CPUs the supported instruction sets are detected at runtime (once, then
+cached) and the fastest available algorithm is selected:
 
-## ARM SVE on stable Rust
+* If the CPU supports AVX512, the AVX512 VPOPCNTDQ algorithm is used.
+* Else if the CPU supports AVX2, the AVX2 Harley-Seal algorithm is used.
+* Else if the CPU supports POPCNT, the hardware POPCNT algorithm is used.
+* For CPUs without POPCNT, a portable integer algorithm is used.
 
-SVE intrinsics in `std::arch` are still nightly-gated
-(`feature(stdarch_aarch64_sve)`). [`build.rs`](build.rs) probes whether the
-active compiler accepts SVE intrinsics and, only if so, sets the
-`simd_popcnt_have_sve` cfg. On stable Rust the SVE code is compiled out and the
-NEON path is used; the rest of the crate builds on stable.
+The library works on every architecture: it is portable by default, hardware
+acceleration is enabled only when the CPU supports it, and it is thread-safe.
+
+If you compile with `RUSTFLAGS="-C target-cpu=native"` on, say, an x86 CPU with
+AVX512 support, all runtime feature checks are removed and the best algorithm is
+selected at compile time.
+
+## ARM SVE (Scalable Vector Extension)
+
+ARM SVE is a vector instruction set for ARM CPUs, first widely available in
+2020. It supports a variable vector length from 128 up to 2048 bits, so SVE
+algorithms can be considerably faster than NEON algorithms, which are limited to
+a 128-bit vector length.
+
+On Linux and Windows, `simd-popcnt` detects at runtime whether the CPU supports
+SVE and, if so, dispatches to the SVE popcount algorithm; otherwise it
+transparently falls back to the portable NEON algorithm.
+
+One Rust-specific caveat: the SVE intrinsics in `std::arch` are still
+nightly-only (`feature(stdarch_aarch64_sve)`). A build script probes whether the
+active compiler accepts them and enables the SVE code path only when it does. On
+stable Rust the SVE path is compiled out and the NEON path is used; everything
+else builds on stable.
+
+## Development
+
+Run the test suite with:
+
+```bash
+cargo test
+```
+
+The crate ships a `benchmark` example for measuring popcount throughput on your
+CPU. For meaningful numbers, build it in release mode with `-C target-cpu=native`
+so the best algorithm is selected at compile time:
+
+```bash
+# Usage: cargo run --release --example benchmark [array_bytes] [iters]
+RUSTFLAGS="-C target-cpu=native" cargo run --release --example benchmark
+```
+
+Below is a run on an Intel Core Ultra 5 245K CPU:
+
+```
+Iters: 10000000
+Array size: 16.00 KB
+Algorithm: AVX2
+Status: 100%
+Seconds: 1.86
+88.0 GB/s
+```
 
 ## Minimum supported Rust version
 
 Rust **1.89** (the release that stabilized the AVX512 intrinsics in `std::arch`).
-SVE support additionally requires a nightly toolchain.
+ARM SVE support additionally requires a nightly toolchain.
 
 ## License
 
