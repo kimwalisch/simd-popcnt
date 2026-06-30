@@ -10,8 +10,8 @@
 //! ## Usage
 //!
 //! ```
-//! let data = [0xFFu8; 16];
-//! assert_eq!(simd_popcnt::popcnt(&data), 128);
+//! let bytes = [0xFFu8; 16];
+//! assert_eq!(simd_popcnt::popcnt(&bytes), 128);
 //! ```
 //!
 //! ## Performance
@@ -31,7 +31,7 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-/// Counts the number of one bits (population count) across all bytes of `data`.
+/// Counts the number of one bits (population count) in `bytes`.
 ///
 /// Dispatches to the fastest implementation for the running CPU: SIMD where
 /// available, a scalar fallback otherwise.
@@ -47,20 +47,20 @@ use core::arch::x86_64::*;
 /// ```
 #[must_use]
 #[inline]
-pub fn popcnt(data: &[u8]) -> u64 {
+pub fn popcnt(bytes: &[u8]) -> u64 {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
-        popcnt_x86(data)
+        popcnt_x86(bytes)
     }
 
     #[cfg(target_arch = "aarch64")]
     {
-        popcnt_aarch64(data)
+        popcnt_aarch64(bytes)
     }
 
     #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
     {
-        popcnt_scalar(data)
+        popcnt_scalar(bytes)
     }
 }
 
@@ -132,9 +132,9 @@ fn tail_u64(rem: &[u8]) -> u64 {
 /// `i64.popcnt`, …), otherwise to an inline bit-twiddling sequence — never a
 /// library call. Shared with the POPCNT-`target_feature` variant below.
 macro_rules! popcnt_scalar_loop {
-    ($data:expr) => {{
+    ($bytes:expr) => {{
         let mut cnt = 0u64;
-        let (chunks, rem) = $data.as_chunks::<8>();
+        let (chunks, rem) = $bytes.as_chunks::<8>();
         for chunk in chunks {
             cnt += u64::from_le_bytes(*chunk).count_ones() as u64;
         }
@@ -147,8 +147,8 @@ macro_rules! popcnt_scalar_loop {
 
 /// Portable scalar population count via [`u64::count_ones`].
 #[allow(dead_code)]
-fn popcnt_scalar(data: &[u8]) -> u64 {
-    popcnt_scalar_loop!(data)
+fn popcnt_scalar(bytes: &[u8]) -> u64 {
+    popcnt_scalar_loop!(bytes)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -156,15 +156,15 @@ fn popcnt_scalar(data: &[u8]) -> u64 {
 // ════════════════════════════════════════════════════════════════════════════
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-fn popcnt_x86(data: &[u8]) -> u64 {
+fn popcnt_x86(bytes: &[u8]) -> u64 {
     // Compile-time AVX512 path (e.g. with `-C target-cpu=native`).
     #[cfg(target_feature = "avx512vpopcntdq")]
     {
         // AVX512 isn't worth its setup cost for tiny arrays.
-        if data.len() >= 40 {
-            unsafe { popcnt_avx512(data) }
+        if bytes.len() >= 40 {
+            unsafe { popcnt_avx512(bytes) }
         } else {
-            popcnt_scalar_static(data)
+            popcnt_scalar_static(bytes)
         }
     }
 
@@ -172,12 +172,12 @@ fn popcnt_x86(data: &[u8]) -> u64 {
     #[cfg(all(target_feature = "avx2", not(target_feature = "avx512vpopcntdq")))]
     {
         let mut cnt = 0u64;
-        let mut rest = data;
+        let mut rest = bytes;
         // AVX2 only wins for arrays >= 512 bytes.
-        if data.len() >= 512 {
-            let n = data.len() / 32 * 32;
-            cnt += unsafe { popcnt_avx2(&data[..n]) };
-            rest = &data[n..];
+        if bytes.len() >= 512 {
+            let n = bytes.len() / 32 * 32;
+            cnt += unsafe { popcnt_avx2(&bytes[..n]) };
+            rest = &bytes[n..];
         }
         cnt + popcnt_scalar_static(rest)
     }
@@ -185,7 +185,7 @@ fn popcnt_x86(data: &[u8]) -> u64 {
     // No SIMD enabled at compile time: detect at runtime.
     #[cfg(not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq")))]
     {
-        popcnt_x86_runtime(data)
+        popcnt_x86_runtime(bytes)
     }
 }
 
@@ -196,15 +196,15 @@ fn popcnt_x86(data: &[u8]) -> u64 {
     any(target_feature = "avx2", target_feature = "avx512vpopcntdq")
 ))]
 #[inline]
-fn popcnt_scalar_static(data: &[u8]) -> u64 {
+fn popcnt_scalar_static(bytes: &[u8]) -> u64 {
     #[cfg(target_feature = "popcnt")]
     {
         // SAFETY: `popcnt` is statically enabled for the whole crate.
-        unsafe { popcnt_scalar_hw(data) }
+        unsafe { popcnt_scalar_hw(bytes) }
     }
     #[cfg(not(target_feature = "popcnt"))]
     {
-        popcnt_scalar(data)
+        popcnt_scalar(bytes)
     }
 }
 
@@ -214,24 +214,24 @@ fn popcnt_scalar_static(data: &[u8]) -> u64 {
     any(target_arch = "x86", target_arch = "x86_64"),
     not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq"))
 ))]
-fn popcnt_x86_runtime(data: &[u8]) -> u64 {
+fn popcnt_x86_runtime(bytes: &[u8]) -> u64 {
     // AVX512: not worth its setup cost below ~40 bytes, handles any length.
-    if data.len() >= 40
+    if bytes.len() >= 40
         && is_x86_feature_detected!("avx512f")
         && is_x86_feature_detected!("avx512bw")
         && is_x86_feature_detected!("avx512vpopcntdq")
     {
-        return unsafe { popcnt_avx512(data) };
+        return unsafe { popcnt_avx512(bytes) };
     }
 
     let mut cnt = 0u64;
-    let mut rest = data;
+    let mut rest = bytes;
 
     // AVX2 only wins for arrays >= 512 bytes.
-    if data.len() >= 512 && is_x86_feature_detected!("avx2") {
-        let n = data.len() / 32 * 32;
-        cnt += unsafe { popcnt_avx2(&data[..n]) };
-        rest = &data[n..];
+    if bytes.len() >= 512 && is_x86_feature_detected!("avx2") {
+        let n = bytes.len() / 32 * 32;
+        cnt += unsafe { popcnt_avx2(&bytes[..n]) };
+        rest = &bytes[n..];
     }
 
     // Scalar tail (or the whole array if AVX2 didn't fire). Dispatching on
@@ -253,8 +253,8 @@ fn popcnt_x86_runtime(data: &[u8]) -> u64 {
 #[allow(dead_code)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "popcnt")]
-fn popcnt_scalar_hw(data: &[u8]) -> u64 {
-    popcnt_scalar_loop!(data) // count_ones() lowers to popcntq here
+fn popcnt_scalar_hw(bytes: &[u8]) -> u64 {
+    popcnt_scalar_loop!(bytes) // count_ones() lowers to popcntq here
 }
 
 // ── AVX2 ────────────────────────────────────────────────────────────────────
@@ -303,7 +303,7 @@ fn popcnt256(v: __m256i) -> __m256i {
 /// Counts using AVX2 Instructions" by Lemire, Kurz and Muła (2016),
 /// <https://arxiv.org/abs/1611.07612>.
 ///
-/// `data.len()` must be a multiple of 32.
+/// `bytes.len()` must be a multiple of 32.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     not(target_feature = "avx512vpopcntdq")
@@ -311,7 +311,7 @@ fn popcnt256(v: __m256i) -> __m256i {
 #[target_feature(enable = "avx2")]
 // Hand-aligned: keep the 16-way CSA tree readable.
 #[rustfmt::skip]
-fn popcnt_avx2(data: &[u8]) -> u64 {
+fn popcnt_avx2(bytes: &[u8]) -> u64 {
     let zero = _mm256_setzero_si256();
     let mut cnt = zero;
     let mut ones = zero;
@@ -327,7 +327,7 @@ fn popcnt_avx2(data: &[u8]) -> u64 {
     let mut sixteens;
 
     // 16 vectors (512 bytes) per iteration.
-    let (blocks, tail) = data.as_chunks::<512>();
+    let (blocks, tail) = bytes.as_chunks::<512>();
     for chunk in blocks {
         let p = chunk.as_ptr() as *const __m256i;
         // SAFETY: `chunk` is 512 bytes, so all 16 loads (32 bytes each) are in bounds.
@@ -380,11 +380,11 @@ fn popcnt_avx2(data: &[u8]) -> u64 {
     any(not(target_feature = "avx2"), target_feature = "avx512vpopcntdq")
 ))]
 #[target_feature(enable = "avx512f,avx512bw,avx512vpopcntdq")]
-fn popcnt_avx512(data: &[u8]) -> u64 {
+fn popcnt_avx512(bytes: &[u8]) -> u64 {
     let mut cnt = _mm512_setzero_si512();
 
     // 4× unrolled 64-byte loop (256 bytes per iteration).
-    let (blocks, tail256) = data.as_chunks::<256>();
+    let (blocks, tail256) = bytes.as_chunks::<256>();
     for chunk in blocks {
         let p = chunk.as_ptr();
         // SAFETY: `chunk` is 256 bytes, so the four 64-byte loads are in bounds.
@@ -428,17 +428,17 @@ fn popcnt_avx512(data: &[u8]) -> u64 {
 // ════════════════════════════════════════════════════════════════════════════
 
 #[cfg(target_arch = "aarch64")]
-fn popcnt_aarch64(data: &[u8]) -> u64 {
+fn popcnt_aarch64(bytes: &[u8]) -> u64 {
     // Compile-time SVE path.
     #[cfg(all(target_feature = "sve", simd_popcnt_have_sve))]
     {
-        unsafe { popcnt_arm_sve(data) }
+        unsafe { popcnt_arm_sve(bytes) }
     }
 
     // NEON baseline; `popcnt_neon` dispatches to SVE at runtime when available.
     #[cfg(not(all(target_feature = "sve", simd_popcnt_have_sve)))]
     {
-        popcnt_neon(data)
+        popcnt_neon(bytes)
     }
 }
 
@@ -449,12 +449,12 @@ fn vpadalq(sum: uint64x2_t, t: uint8x16_t) -> uint64x2_t {
 }
 
 #[cfg(target_arch = "aarch64")]
-fn popcnt_neon(data: &[u8]) -> u64 {
+fn popcnt_neon(bytes: &[u8]) -> u64 {
     // Runtime SVE dispatch (present only when the build probe enabled SVE).
     #[cfg(simd_popcnt_have_sve)]
     {
         // Cached SVE support (-1 = unknown). Relaxed ordering is fine: the
-        // value is idempotent and guards no other data.
+        // value is idempotent and guards no other state.
         use core::sync::atomic::{AtomicI32, Ordering};
         static SVE_SUPPORT: AtomicI32 = AtomicI32::new(-1);
         let cached = SVE_SUPPORT.load(Ordering::Relaxed);
@@ -466,15 +466,15 @@ fn popcnt_neon(data: &[u8]) -> u64 {
             cached
         };
         if has_sve != 0 {
-            return unsafe { popcnt_arm_sve(data) };
+            return unsafe { popcnt_arm_sve(bytes) };
         }
     }
 
     // NEON path.
     const CHUNK: usize = 64;
     let mut cnt = 0u64;
-    let iters = data.len() / CHUNK;
-    let ptr = data.as_ptr();
+    let iters = bytes.len() / CHUNK;
+    let ptr = bytes.as_ptr();
 
     if iters > 0 {
         // SAFETY: `iters = len / 64`, so every `vld4q_u8` at `i * 64` (i < iters)
@@ -516,7 +516,7 @@ fn popcnt_neon(data: &[u8]) -> u64 {
 
     // Scalar tail. On AArch64 `count_ones()` always lowers to NEON `cnt`, so no
     // POPCNT runtime check is needed here.
-    let rest = &data[iters * CHUNK..];
+    let rest = &bytes[iters * CHUNK..];
     let (chunks, rem) = rest.as_chunks::<8>();
     for chunk in chunks {
         cnt += u64::from_le_bytes(*chunk).count_ones() as u64;
@@ -554,15 +554,15 @@ fn has_arm_sve() -> bool {
 /// predicated tail loop that needs no separate scalar remainder.
 #[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
 #[target_feature(enable = "sve")]
-fn popcnt_arm_sve(data: &[u8]) -> u64 {
+fn popcnt_arm_sve(bytes: &[u8]) -> u64 {
     // SAFETY: the loop bound keeps each full load within `len`; the tail loop's
     // predicate masks off any lanes past the end.
     unsafe {
         let mut i = 0usize;
         let mut vcnt = svdup_n_u64(0);
         let vl = svcntb() as usize; // SVE vector length in bytes (hardware-defined)
-        let ptr = data.as_ptr();
-        let len = data.len();
+        let ptr = bytes.as_ptr();
+        let len = bytes.len();
 
         // 4× unrolled full-predicate loop.
         while i + vl * 4 <= len {
@@ -600,8 +600,8 @@ mod tests {
     use super::*;
 
     /// Reference implementation: count bits one byte at a time.
-    fn reference(data: &[u8]) -> u64 {
-        data.iter().map(|b| b.count_ones() as u64).sum()
+    fn reference(bytes: &[u8]) -> u64 {
+        bytes.iter().map(|b| b.count_ones() as u64).sum()
     }
 
     /// Independent integer-only popcount oracle (does not use `count_ones`),
@@ -627,15 +627,15 @@ mod tests {
         for &size in &[
             0, 1, 7, 8, 31, 32, 39, 40, 63, 64, 255, 256, 511, 512, 4095, 4096, 65537,
         ] {
-            let data = vec![0xFFu8; size];
-            assert_eq!(popcnt(&data), size as u64 * 8, "size={size}");
+            let bytes = vec![0xFFu8; size];
+            assert_eq!(popcnt(&bytes), size as u64 * 8, "size={size}");
         }
     }
 
     #[test]
     fn all_zeros() {
-        let data = vec![0u8; 65536];
-        assert_eq!(popcnt(&data), 0);
+        let bytes = vec![0u8; 65536];
+        assert_eq!(popcnt(&bytes), 0);
     }
 
     #[test]
@@ -701,8 +701,8 @@ mod tests {
         // bytes spans several 512-byte Harley-Seal iterations.
         const MAX_SIZE: usize = 4695;
         const MAX_OFF: usize = 7;
-        let mut data = vec![0u8; MAX_SIZE + MAX_OFF + 1];
-        for b in data.iter_mut() {
+        let mut bytes = vec![0u8; MAX_SIZE + MAX_OFF + 1];
+        for b in bytes.iter_mut() {
             *b = (next() & 0xFF) as u8;
         }
 
@@ -712,13 +712,13 @@ mod tests {
             (0usize..=600).chain([1023, 1024, 1025, 2048, 4095, 4096, 4097, 4608, MAX_SIZE]);
         for size in sizes {
             for &off in &[0usize, 1, 3, MAX_OFF] {
-                let slice = &data[off..off + size];
+                let slice = &bytes[off..off + size];
                 assert_eq!(popcnt(slice), reference(slice), "size={size} off={off}");
             }
         }
     }
 
-    /// Verify `popcnt()` of every suffix `data[i..]` against an independent
+    /// Verify `popcnt()` of every suffix `bytes[i..]` against an independent
     /// byte-wise reference, covering every length and a range of start
     /// alignments in one sweep.
     ///
@@ -738,26 +738,26 @@ mod tests {
 
         // Deterministic pseudo-random array (fixed seed → reproducible failures).
         let mut state: u64 = 0x2545_F491_4F6C_DD1D;
-        let mut data = vec![0u8; size];
-        for b in data.iter_mut() {
+        let mut bytes = vec![0u8; size];
+        for b in bytes.iter_mut() {
             state ^= state << 13;
             state ^= state >> 7;
             state ^= state << 17;
             *b = state as u8;
         }
-        check_all_suffixes(&data);
+        check_all_suffixes(&bytes);
     }
 
-    /// Assert `popcnt(&data[i..])` for every `i` against an O(1) prefix-sum
+    /// Assert `popcnt(&bytes[i..])` for every `i` against an O(1) prefix-sum
     /// reference, so only `popcnt` itself does O(n) work per suffix.
-    fn check_all_suffixes(data: &[u8]) {
-        let total: u64 = data.iter().map(|&b| popcnt64_bitwise(b as u64)).sum();
-        let mut prefix = 0u64; // popcount of data[..i]
-        for (i, &byte) in data.iter().enumerate() {
-            assert_eq!(popcnt(&data[i..]), total - prefix, "suffix at offset {i}");
+    fn check_all_suffixes(bytes: &[u8]) {
+        let total: u64 = bytes.iter().map(|&b| popcnt64_bitwise(b as u64)).sum();
+        let mut prefix = 0u64; // popcount of bytes[..i]
+        for (i, &byte) in bytes.iter().enumerate() {
+            assert_eq!(popcnt(&bytes[i..]), total - prefix, "suffix at offset {i}");
             prefix += popcnt64_bitwise(byte as u64);
         }
         // Empty suffix.
-        assert_eq!(popcnt(&data[data.len()..]), 0);
+        assert_eq!(popcnt(&bytes[bytes.len()..]), 0);
     }
 }

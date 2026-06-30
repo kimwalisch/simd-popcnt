@@ -21,7 +21,7 @@ The core function counts the one bits in a byte slice:
 
 ```rust
 /// Returns the number of set 1-bits in a byte slice
-pub fn popcnt(data: &[u8]) -> u64
+pub fn popcnt(bytes: &[u8]) -> u64
 ```
 
 The `PopcntExt` trait adds a `.popcnt()` method to slices, arrays and `Vec`s of
