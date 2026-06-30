@@ -54,3 +54,32 @@ jobs:
       # compiles the `benchmark` example.
       - name: Run test suite
         run: cargo test
+
+  wasm:
+    name: WebAssembly (wasm32-wasip1)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly + wasm target
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-wasip1
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Wasmtime
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasmtime
+
+      # Compile the whole crate to WebAssembly and run the unit tests under the
+      # Wasmtime runtime via a cargo runner. WASM is neither x86 nor AArch64, so
+      # this exercises the portable scalar code path. `--lib` runs the unit tests
+      # (doctests are not run on a cross-compiled target).
+      - name: Run tests on WebAssembly
+        run: cargo test --target wasm32-wasip1 --lib
+        env:
+          CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
