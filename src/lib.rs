@@ -31,8 +31,14 @@
 //! This selects the best SIMD path at compile time and removes the runtime
 //! dispatch entirely.
 
-// Enable SVE intrinsics only when build.rs confirmed they compile on this rustc.
-#![cfg_attr(simd_popcnt_have_sve, feature(stdarch_aarch64_sve))]
+// Enable SVE intrinsics only when build.rs confirmed they compile on this rustc
+// AND the SVE code (`popcnt_arm_sve`) is actually compiled — i.e. the compile-time
+// SVE path or the runtime (`std`) dispatcher. Otherwise the feature would be
+// declared but unused (e.g. a `no_std` NEON-only build).
+#![cfg_attr(
+    all(simd_popcnt_have_sve, any(target_feature = "sve", feature = "std")),
+    feature(stdarch_aarch64_sve)
+)]
 // Compile as `no_std` unless we actually need `std`. The *only* thing that needs
 // `std` is runtime CPU feature detection (`is_x86_feature_detected!` /
 // `is_aarch64_feature_detected!`), which is compiled only when the `std` feature
