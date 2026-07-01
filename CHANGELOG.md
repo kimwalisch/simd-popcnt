@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Improved ARM NEON performance by up to 2x.
+- Improved ARM SVE performance by up to 2x (four independent accumulators for
+  higher instruction-level parallelism).
+- Improved AVX512 performance by ~10% (four independent accumulators for higher
+  instruction-level parallelism).
 - Annotated the dispatch glue and SIMD kernels with `#[inline]` so the runtime
   dispatch ladder collapses into the caller, and native builds can inline the
   whole path — reducing per-call overhead, most noticeably for small arrays.

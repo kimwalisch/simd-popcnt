@@ -477,30 +477,39 @@ fn popcnt_avx2(bytes: &[u8]) -> u64 {
 #[target_feature(enable = "avx512f,avx512bw,avx512vpopcntdq")]
 #[inline]
 fn popcnt_avx512(bytes: &[u8]) -> u64 {
-    let mut cnt = _mm512_setzero_si512();
+    let mut cnt0 = _mm512_setzero_si512();
 
-    // 4× unrolled 64-byte loop (256 bytes per iteration).
+    // 4× unrolled 64-byte loop (256 bytes per iteration). Four independent
+    // accumulators keep the popcount+add chains parallel (higher ILP).
     let (blocks, tail256) = bytes.as_chunks::<256>();
-    for chunk in blocks {
-        let p = chunk.as_ptr();
-        // SAFETY: `chunk` is 256 bytes, so the four 64-byte loads are in bounds.
-        unsafe {
-            let v0 = _mm512_loadu_si512(p.add(0).cast());
-            let v1 = _mm512_loadu_si512(p.add(64).cast());
-            let v2 = _mm512_loadu_si512(p.add(128).cast());
-            let v3 = _mm512_loadu_si512(p.add(192).cast());
-            cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v0));
-            cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v1));
-            cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v2));
-            cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v3));
+    if !blocks.is_empty() {
+        let mut cnt1 = _mm512_setzero_si512();
+        let mut cnt2 = _mm512_setzero_si512();
+        let mut cnt3 = _mm512_setzero_si512();
+        for chunk in blocks {
+            let p = chunk.as_ptr();
+            // SAFETY: `chunk` is 256 bytes, so the four 64-byte loads are in bounds.
+            unsafe {
+                let v0 = _mm512_loadu_si512(p.add(0).cast());
+                let v1 = _mm512_loadu_si512(p.add(64).cast());
+                let v2 = _mm512_loadu_si512(p.add(128).cast());
+                let v3 = _mm512_loadu_si512(p.add(192).cast());
+                cnt0 = _mm512_add_epi64(cnt0, _mm512_popcnt_epi64(v0));
+                cnt1 = _mm512_add_epi64(cnt1, _mm512_popcnt_epi64(v1));
+                cnt2 = _mm512_add_epi64(cnt2, _mm512_popcnt_epi64(v2));
+                cnt3 = _mm512_add_epi64(cnt3, _mm512_popcnt_epi64(v3));
+            }
         }
+        cnt0 = _mm512_add_epi64(cnt0, cnt1);
+        cnt2 = _mm512_add_epi64(cnt2, cnt3);
+        cnt0 = _mm512_add_epi64(cnt0, cnt2);
     }
 
     // Remaining complete 64-byte blocks.
     let (vecs, tail64) = tail256.as_chunks::<64>();
     for chunk in vecs {
         let v = unsafe { _mm512_loadu_si512(chunk.as_ptr().cast()) };
-        cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v));
+        cnt0 = _mm512_add_epi64(cnt0, _mm512_popcnt_epi64(v));
     }
 
     // Masked load for the final 1..=63 bytes.
@@ -511,11 +520,11 @@ fn popcnt_avx512(bytes: &[u8]) -> u64 {
         // are not accessed.
         unsafe {
             let v = _mm512_maskz_loadu_epi8(mask, tail64.as_ptr().cast());
-            cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v));
+            cnt0 = _mm512_add_epi64(cnt0, _mm512_popcnt_epi64(v));
         }
     }
 
-    _mm512_reduce_add_epi64(cnt) as u64
+    _mm512_reduce_add_epi64(cnt0) as u64
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -627,22 +636,34 @@ fn popcnt_arm_sve(bytes: &[u8]) -> u64 {
     // predicate masks off any lanes past the end.
     unsafe {
         let mut i = 0usize;
-        let mut vcnt = svdup_n_u64(0);
+        let mut vcnt0 = svdup_n_u64(0);
         let vl = svcntb() as usize; // SVE vector length in bytes (hardware-defined)
         let ptr = bytes.as_ptr();
         let len = bytes.len();
 
-        // 4× unrolled full-predicate loop.
-        while i + vl * 4 <= len {
-            let v0 = svreinterpret_u64_u8(svld1_u8(svptrue_b8(), ptr.add(i)));
-            let v1 = svreinterpret_u64_u8(svld1_u8(svptrue_b8(), ptr.add(i + vl)));
-            let v2 = svreinterpret_u64_u8(svld1_u8(svptrue_b8(), ptr.add(i + vl * 2)));
-            let v3 = svreinterpret_u64_u8(svld1_u8(svptrue_b8(), ptr.add(i + vl * 3)));
-            vcnt = svadd_u64_x(svptrue_b64(), vcnt, svcnt_u64_x(svptrue_b64(), v0));
-            vcnt = svadd_u64_x(svptrue_b64(), vcnt, svcnt_u64_x(svptrue_b64(), v1));
-            vcnt = svadd_u64_x(svptrue_b64(), vcnt, svcnt_u64_x(svptrue_b64(), v2));
-            vcnt = svadd_u64_x(svptrue_b64(), vcnt, svcnt_u64_x(svptrue_b64(), v3));
-            i += vl * 4;
+        // 4× unrolled full-predicate loop. Four independent accumulators keep the
+        // count+add chains parallel (higher ILP).
+        if i + vl * 4 <= len {
+            let mut vcnt1 = svdup_n_u64(0);
+            let mut vcnt2 = svdup_n_u64(0);
+            let mut vcnt3 = svdup_n_u64(0);
+            loop {
+                let v0 = svreinterpret_u64_u8(svld1_u8(svptrue_b8(), ptr.add(i)));
+                let v1 = svreinterpret_u64_u8(svld1_u8(svptrue_b8(), ptr.add(i + vl)));
+                let v2 = svreinterpret_u64_u8(svld1_u8(svptrue_b8(), ptr.add(i + vl * 2)));
+                let v3 = svreinterpret_u64_u8(svld1_u8(svptrue_b8(), ptr.add(i + vl * 3)));
+                vcnt0 = svadd_u64_x(svptrue_b64(), vcnt0, svcnt_u64_x(svptrue_b64(), v0));
+                vcnt1 = svadd_u64_x(svptrue_b64(), vcnt1, svcnt_u64_x(svptrue_b64(), v1));
+                vcnt2 = svadd_u64_x(svptrue_b64(), vcnt2, svcnt_u64_x(svptrue_b64(), v2));
+                vcnt3 = svadd_u64_x(svptrue_b64(), vcnt3, svcnt_u64_x(svptrue_b64(), v3));
+                i += vl * 4;
+                if i + vl * 4 > len {
+                    break;
+                }
+            }
+            vcnt0 = svadd_u64_x(svptrue_b64(), vcnt0, vcnt1);
+            vcnt2 = svadd_u64_x(svptrue_b64(), vcnt2, vcnt3);
+            vcnt0 = svadd_u64_x(svptrue_b64(), vcnt0, vcnt2);
         }
 
         // Predicated tail: the load zero-fills inactive lanes, so no separate
@@ -650,12 +671,12 @@ fn popcnt_arm_sve(bytes: &[u8]) -> u64 {
         let mut pg = svwhilelt_b8_u64(i as u64, len as u64);
         while svptest_any(svptrue_b8(), pg) {
             let v = svreinterpret_u64_u8(svld1_u8(pg, ptr.add(i)));
-            vcnt = svadd_u64_x(svptrue_b64(), vcnt, svcnt_u64_x(svptrue_b64(), v));
+            vcnt0 = svadd_u64_x(svptrue_b64(), vcnt0, svcnt_u64_x(svptrue_b64(), v));
             i += vl;
             pg = svwhilelt_b8_u64(i as u64, len as u64);
         }
 
-        svaddv_u64(svptrue_b64(), vcnt)
+        svaddv_u64(svptrue_b64(), vcnt0)
     }
 }
 
