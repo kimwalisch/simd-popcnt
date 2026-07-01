@@ -129,3 +129,53 @@ jobs:
       - name: Run benchmark
         if: matrix.profile == 'release'
         run: cargo run --release --example benchmark
+
+  # Run the test suite and the benchmark under Valgrind's memcheck tool to
+  # dynamically verify the SIMD algorithms are free of memory-safety undefined
+  # behavior (out-of-bounds reads, use of uninitialized memory). Unlike Miri,
+  # Valgrind instruments the real machine code, so it checks the bytes read
+  # inside the vector loads of whichever SIMD path actually runs (typically
+  # AVX2 on x86-64 and NEON on AArch64). Covered on both architectures.
+  valgrind:
+    name: Valgrind memcheck (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    env:
+      # Point Cargo's target runner at Valgrind so `cargo test` / `cargo run`
+      # execute the compiled binaries under memcheck. `--error-exitcode=1` fails
+      # the job on any detected issue: invalid / out-of-bounds reads or writes,
+      # use of uninitialized memory, bad frees, and memory leaks. Only
+      # "definite"/"possible" leaks count as errors (Valgrind's default), so the
+      # benign "still reachable" allocations Rust's runtime leaves at exit don't
+      # trigger false failures. Only the runner matching the host triple is used.
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: valgrind --error-exitcode=1 --leak-check=full --errors-for-leak-kinds=definite,possible --track-origins=yes
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER: valgrind --error-exitcode=1 --leak-check=full --errors-for-leak-kinds=definite,possible --track-origins=yes
+      # Line-level debug info gives readable Valgrind backtraces without
+      # disabling optimizations, so the SIMD paths are still exercised.
+      CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install Valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # Release mode exercises the optimized SIMD paths. Runs the unit tests and
+      # doctests under Valgrind via the target runner configured above.
+      - name: Run test suite under Valgrind
+        run: cargo test --release
+
+      # Run the benchmark under Valgrind with 100x fewer iterations than the
+      # default (100,000 instead of 10,000,000) so it finishes quickly under
+      # instrumentation. The first argument keeps the default 16 KiB array size.
+      - name: Run benchmark under Valgrind
+        run: cargo run --release --example benchmark -- 16384 100000
