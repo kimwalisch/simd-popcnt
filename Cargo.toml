@@ -1,6 +1,6 @@
 [package]
 name         = "simd-popcnt"
-version      = "0.1.0"
+version      = "0.1.1"
 edition      = "2024"
 # AVX512 intrinsics in std::arch were stabilized in Rust 1.89.
 rust-version = "1.89"
