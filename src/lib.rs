@@ -359,7 +359,7 @@ fn popcnt_avx2(bytes: &[u8]) -> u64 {
     // 16 vectors (512 bytes) per iteration.
     let (blocks, tail) = bytes.as_chunks::<512>();
     for chunk in blocks {
-        let p = chunk.as_ptr() as *const __m256i;
+        let p = chunk.as_ptr().cast::<__m256i>();
         // SAFETY: `chunk` is 512 bytes, so all 16 loads (32 bytes each) are in bounds.
         unsafe {
             (twos_a, ones) = csa256(ones, _mm256_loadu_si256(p.add(0)), _mm256_loadu_si256(p.add(1)));
@@ -390,7 +390,7 @@ fn popcnt_avx2(bytes: &[u8]) -> u64 {
     // Remaining whole 32-byte vectors.
     let (vecs, _) = tail.as_chunks::<32>();
     for chunk in vecs {
-        let v = unsafe { _mm256_loadu_si256(chunk.as_ptr() as *const __m256i) };
+        let v = unsafe { _mm256_loadu_si256(chunk.as_ptr().cast::<__m256i>()) };
         cnt = _mm256_add_epi64(cnt, popcnt256(v));
     }
 
@@ -419,10 +419,10 @@ fn popcnt_avx512(bytes: &[u8]) -> u64 {
         let p = chunk.as_ptr();
         // SAFETY: `chunk` is 256 bytes, so the four 64-byte loads are in bounds.
         unsafe {
-            let v0 = _mm512_loadu_si512(p.add(0) as *const _);
-            let v1 = _mm512_loadu_si512(p.add(64) as *const _);
-            let v2 = _mm512_loadu_si512(p.add(128) as *const _);
-            let v3 = _mm512_loadu_si512(p.add(192) as *const _);
+            let v0 = _mm512_loadu_si512(p.add(0).cast());
+            let v1 = _mm512_loadu_si512(p.add(64).cast());
+            let v2 = _mm512_loadu_si512(p.add(128).cast());
+            let v3 = _mm512_loadu_si512(p.add(192).cast());
             cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v0));
             cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v1));
             cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v2));
@@ -433,7 +433,7 @@ fn popcnt_avx512(bytes: &[u8]) -> u64 {
     // Remaining complete 64-byte blocks.
     let (vecs, tail64) = tail256.as_chunks::<64>();
     for chunk in vecs {
-        let v = unsafe { _mm512_loadu_si512(chunk.as_ptr() as *const _) };
+        let v = unsafe { _mm512_loadu_si512(chunk.as_ptr().cast()) };
         cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v));
     }
 
@@ -445,7 +445,7 @@ fn popcnt_avx512(bytes: &[u8]) -> u64 {
         // SAFETY: the mask selects only the `len` valid bytes; masked-off lanes
         // are not accessed.
         unsafe {
-            let v = _mm512_maskz_loadu_epi8(mask, tail64.as_ptr() as *const _);
+            let v = _mm512_maskz_loadu_epi8(mask, tail64.as_ptr().cast());
             cnt = _mm512_add_epi64(cnt, _mm512_popcnt_epi64(v));
         }
     }
