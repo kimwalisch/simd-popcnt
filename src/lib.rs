@@ -26,7 +26,7 @@
 
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
 use std::arch::is_aarch64_feature_detected;
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
