@@ -1,25 +1,35 @@
 //! # simd-popcnt
 //!
 //! Count the number of 1 bits (bit population count, a.k.a. Hamming weight) in
-//! a byte slice as quickly as possible using specialized CPU instructions:
-//! POPCNT, AVX2 and AVX512 on x86/x86-64, and NEON and SVE on AArch64.
+//! an array as quickly as possible using specialized CPU instructions: POPCNT,
+//! AVX2 and AVX512 on x86/x86-64, and NEON and SVE on AArch64. The fastest
+//! instruction set the CPU supports is detected once at runtime and cached; on
+//! every other architecture the count falls back to [`u64::count_ones`], which
+//! the compiler lowers to a hardware popcount instruction wherever one exists.
 //!
-//! This is a Rust port of the C/C++ [`libpopcnt.h`](https://github.com/kimwalisch/libpopcnt)
-//! header-only library by Kim Walisch.
+//! The crate is portable by default, thread-safe, and has no dependencies other
+//! than the Rust standard library.
+//!
+//! This is an AI-assisted Rust port of the [libpopcnt C/C++ library](https://github.com/kimwalisch/libpopcnt).
 //!
 //! ## Usage
 //!
+//! [`popcnt`] counts the 1 bits in a byte slice; the [`PopcntExt`] trait adds a
+//! `.popcnt()` method to slices, arrays and `Vec`s of every built-in integer
+//! type.
+//!
 //! ```
-//! let bytes = [0xFFu8; 16];
-//! assert_eq!(simd_popcnt::popcnt(&bytes), 128);
+//! use simd_popcnt::{popcnt, PopcntExt};
+//!
+//! assert_eq!(popcnt(&[0xFF, 0x0F]), 12);
+//! assert_eq!([u64::MAX, 0x0F0F_0F0F_0F0F_0F0F].popcnt(), 96);
 //! ```
 //!
 //! ## Performance
 //!
 //! For the fastest possible code, compile with `RUSTFLAGS="-C target-cpu=native"`.
-//! This lets the crate select the best SIMD path at compile time with zero
-//! runtime dispatch overhead. Otherwise the best available instruction set is
-//! detected once at runtime and cached.
+//! This selects the best SIMD path at compile time and removes the runtime
+//! dispatch entirely.
 
 // Enable SVE intrinsics only when build.rs confirmed they compile on this rustc.
 #![cfg_attr(simd_popcnt_have_sve, feature(stdarch_aarch64_sve))]
