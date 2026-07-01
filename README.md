@@ -8,7 +8,8 @@
 `simd-popcnt` is a Rust library for counting the number of 1 bits (bit
 population count, a.k.a. Hamming weight) in an array as quickly as possible
 using specialized CPU instructions: POPCNT, AVX2, AVX512, ARM NEON and ARM SVE.
-It has no dependencies other than the Rust standard library.
+It has no external crate dependencies and needs the Rust standard library only
+for runtime SIMD dispatch (CPU feature detection); it is otherwise `no_std`.
 
 `simd-popcnt` aims to be the fastest Rust crate for counting the number of
 1-bits in an array. If it runs slower than another library for your particular
@@ -89,26 +90,6 @@ acceleration is enabled only when the CPU supports it, and it is thread-safe.
 If you compile with `RUSTFLAGS="-C target-cpu=native"` on, say, an x86 CPU with
 AVX512 support, all runtime feature checks are removed and the best algorithm is
 selected at compile time.
-
-## `no_std`
-
-Runtime CPU feature detection is the only part of the crate that needs `std`, so
-it lives behind a default-on `std` feature. Disable it for a `no_std` build:
-
-```toml
-[dependencies]
-simd-popcnt = { version = "0.1", default-features = false }
-```
-
-Without `std` the crate selects its SIMD path purely at compile time (from the
-enabled target features) and falls back to the portable integer algorithm
-otherwise — so build `no_std` consumers with `-C target-cpu=native` (or an
-explicit `-C target-feature=…`) to get hardware acceleration.
-
-Because runtime detection is the sole user of `std`, the crate also becomes
-`no_std` *automatically* whenever a build has no runtime dispatch left to do —
-for example under `-C target-cpu=native` on x86, or on any non-x86/AArch64
-target — even with the `std` feature enabled.
 
 ## ARM SVE (Scalable Vector Extension)
 
