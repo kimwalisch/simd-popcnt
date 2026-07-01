@@ -3,7 +3,7 @@
 [![CI](https://github.com/kimwalisch/simd-popcnt/actions/workflows/ci.yml/badge.svg)](https://github.com/kimwalisch/simd-popcnt/actions/workflows/ci.yml)
 [![docs.rs](https://docs.rs/simd-popcnt/badge.svg)](https://docs.rs/simd-popcnt)
 [![crates.io](https://img.shields.io/crates/v/simd-popcnt.svg)](https://crates.io/crates/simd-popcnt)
-![msrv](https://img.shields.io/crates/msrv/simd-popcnt.svg)
+![minimum rustc 1.89](https://img.shields.io/badge/rustc-1.89+-blue.svg)
 
 `simd-popcnt` is a Rust library for counting the number of 1 bits (bit
 population count, a.k.a. Hamming weight) in an array as quickly as possible
