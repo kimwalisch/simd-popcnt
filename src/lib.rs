@@ -7,8 +7,9 @@
 //! every other architecture the count falls back to [`u64::count_ones`], which
 //! the compiler lowers to a hardware popcount instruction wherever one exists.
 //!
-//! The crate is portable by default, thread-safe, and has no dependencies other
-//! than the Rust standard library.
+//! The crate is portable by default and thread-safe. It has no external crate
+//! dependencies and needs the Rust standard library only for runtime SIMD
+//! dispatch (CPU feature detection); it is otherwise `no_std`.
 //!
 //! This is an AI-assisted Rust port of the [libpopcnt C/C++ library](https://github.com/kimwalisch/libpopcnt).
 //!
