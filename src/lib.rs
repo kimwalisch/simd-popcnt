@@ -564,8 +564,8 @@ fn popcnt_neon(bytes: &[u8]) -> u64 {
     let ptr = bytes.as_ptr();
 
     if iters > 0 {
-        // SAFETY: `iters = len / 64`, so every `vld4q_u8` at `i * 64` (i < iters)
-        // reads 64 in-bounds bytes; the final store targets a local array.
+        // SAFETY: `iters = len / 64`, so every load at `i * 64` (i < iters) reads
+        // 64 in-bounds bytes; the final store targets a local array.
         unsafe {
             let mut sum = vdupq_n_u64(0);
             let zero = vdupq_n_u8(0);
@@ -581,7 +581,10 @@ fn popcnt_neon(bytes: &[u8]) -> u64 {
                 // 31 × 8 bits = 248 ≤ 255 guarantees no u8 lane overflow.
                 let limit = (i + 31).min(iters);
                 while i < limit {
-                    let input = vld4q_u8(ptr.add(i * CHUNK));
+                    // Plain contiguous load (`vld1q_u8_x4`), not the deinterleaving
+                    // `vld4q_u8`: population count is order-independent, so avoiding
+                    // the deinterleave saves the `tbl`/`mov` shuffles it compiles to.
+                    let input = vld1q_u8_x4(ptr.add(i * CHUNK));
                     t0 = vaddq_u8(t0, vcntq_u8(input.0));
                     t1 = vaddq_u8(t1, vcntq_u8(input.1));
                     t2 = vaddq_u8(t2, vcntq_u8(input.2));
