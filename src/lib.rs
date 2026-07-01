@@ -32,23 +32,17 @@
 //! This selects the best SIMD path at compile time and removes the runtime
 //! dispatch entirely.
 
-// Enable SVE intrinsics only when build.rs confirmed they compile on this rustc
-// AND the SVE code (`popcnt_arm_sve`) is actually compiled — i.e. the compile-time
-// SVE path or the runtime (`std`) dispatcher. Otherwise the feature would be
-// declared but unused (e.g. a `no_std` NEON-only build).
+// Enable the SVE intrinsics only when the build probe confirmed they compile and
+// the SVE code is actually built (compile-time SVE path or the `std` dispatcher).
 #![cfg_attr(
     all(simd_popcnt_have_sve, any(target_feature = "sve", feature = "std")),
     feature(stdarch_aarch64_sve)
 )]
-// Compile as `no_std` unless we actually need `std`. The *only* thing that needs
-// `std` is runtime CPU feature detection (`is_x86_feature_detected!` /
-// `is_aarch64_feature_detected!`), which is compiled only when the `std` feature
-// is on AND there is still dispatch to do at runtime — i.e. no SIMD path was
-// already picked at compile time. On x86 that means neither AVX2 nor AVX512 is
-// statically enabled; on AArch64 it means the SVE probe succeeded but SVE was not
-// statically enabled. In every other case (feature off, `-C target-cpu=native`,
-// a non-x86/AArch64 target, …) the crate touches only `core`, so it is `no_std`.
-// `not(test)` keeps `std` for the unit tests, which use `Vec`, `std::env`, etc.
+// The crate uses `std` only for runtime CPU feature detection, which is compiled
+// only when the `std` feature is on and no SIMD path was already selected at
+// compile time. Whenever that code is absent — feature off, `-C target-cpu=native`,
+// or a non-x86/AArch64 target — the crate is `no_std`. `not(test)` keeps `std` for
+// the unit tests.
 #![cfg_attr(
     not(any(
         test,
@@ -69,16 +63,13 @@
 
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
-// Glob of platform intrinsics; which subset is used depends on the SIMD paths
-// compiled, so in a scalar-only `no_std` build the import can be unused.
+// A scalar-only `no_std` build uses none of these x86 intrinsics.
 #[cfg(target_arch = "x86")]
 #[allow(unused_imports)]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 #[allow(unused_imports)]
 use core::arch::x86_64::*;
-// Needed only for the runtime SVE check in `popcnt_neon`, which exists only when
-// the NEON path is compiled (no compile-time SVE) and `std` is available.
 #[cfg(all(
     target_arch = "aarch64",
     simd_popcnt_have_sve,
@@ -250,9 +241,7 @@ fn popcnt_x86(bytes: &[u8]) -> u64 {
         popcnt_x86_runtime(bytes)
     }
 
-    // No SIMD and no `std` for runtime detection (`no_std` build): use the
-    // compile-time scalar path — hardware POPCNT if statically enabled, else the
-    // portable integer fallback.
+    // No SIMD and no `std` for runtime detection: use the compile-time scalar path.
     #[cfg(all(
         not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq")),
         not(feature = "std")
@@ -266,8 +255,6 @@ fn popcnt_x86(bytes: &[u8]) -> u64 {
 /// hardware POPCNT when statically enabled, otherwise the integer fallback.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
-    // Used by the compile-time SIMD paths' tails and, in a `no_std` build, as the
-    // whole-array scalar path when no SIMD is statically enabled.
     any(
         target_feature = "avx2",
         target_feature = "avx512vpopcntdq",
@@ -365,8 +352,6 @@ fn popcnt_scalar_hw(bytes: &[u8]) -> u64 {
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     not(target_feature = "avx512vpopcntdq"),
-    // Reachable via the compile-time AVX2 path or the runtime (`std`) dispatcher;
-    // otherwise (e.g. a `no_std` scalar-only build) it would be dead code.
     any(target_feature = "avx2", feature = "std")
 ))]
 #[target_feature(enable = "avx2")]
@@ -383,8 +368,6 @@ fn csa256(a: __m256i, b: __m256i, c: __m256i) -> (__m256i, __m256i) {
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     not(target_feature = "avx512vpopcntdq"),
-    // Reachable via the compile-time AVX2 path or the runtime (`std`) dispatcher;
-    // otherwise (e.g. a `no_std` scalar-only build) it would be dead code.
     any(target_feature = "avx2", feature = "std")
 ))]
 #[target_feature(enable = "avx2")]
@@ -414,8 +397,6 @@ fn popcnt256(v: __m256i) -> __m256i {
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     not(target_feature = "avx512vpopcntdq"),
-    // Reachable via the compile-time AVX2 path or the runtime (`std`) dispatcher;
-    // otherwise (e.g. a `no_std` scalar-only build) it would be dead code.
     any(target_feature = "avx2", feature = "std")
 ))]
 #[target_feature(enable = "avx2")]
@@ -488,8 +469,6 @@ fn popcnt_avx2(bytes: &[u8]) -> u64 {
 /// 1..=63 bytes.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
-    // Reachable via the runtime (`std`) dispatcher when no SIMD is statically
-    // enabled, or via the compile-time AVX512 path.
     any(
         all(not(target_feature = "avx2"), feature = "std"),
         target_feature = "avx512vpopcntdq"
@@ -527,7 +506,6 @@ fn popcnt_avx512(bytes: &[u8]) -> u64 {
     // Masked load for the final 1..=63 bytes.
     if !tail64.is_empty() {
         let len = tail64.len();
-        // Mask covering the final `len` bytes.
         let mask = (u64::MAX >> (64 - len)) as __mmask64;
         // SAFETY: the mask selects only the `len` valid bytes; masked-off lanes
         // are not accessed.
@@ -560,9 +538,6 @@ fn popcnt_aarch64(bytes: &[u8]) -> u64 {
     }
 }
 
-// Compiled only when the NEON path can actually run, i.e. the compile-time SVE
-// path is not active (matching the `popcnt_aarch64` branch that calls it);
-// otherwise `-C target-cpu=native` on an SVE CPU would leave it dead.
 #[cfg(all(
     target_arch = "aarch64",
     not(all(target_feature = "sve", simd_popcnt_have_sve))
@@ -578,14 +553,11 @@ fn vpadalq(sum: uint64x2_t, t: uint8x16_t) -> uint64x2_t {
 ))]
 #[inline]
 fn popcnt_neon(bytes: &[u8]) -> u64 {
-    // Runtime SVE dispatch (present only when the build probe enabled SVE and
-    // `std` is available for runtime feature detection).
     #[cfg(all(simd_popcnt_have_sve, feature = "std"))]
     if is_aarch64_feature_detected!("sve") {
         return unsafe { popcnt_arm_sve(bytes) };
     }
 
-    // NEON path.
     const CHUNK: usize = 64;
     let mut cnt = 0u64;
     let iters = bytes.len() / CHUNK;
@@ -640,8 +612,6 @@ fn popcnt_neon(bytes: &[u8]) -> u64 {
 
 /// SVE population count: a 4×-unrolled main loop over full vectors, then a
 /// predicated tail loop that needs no separate scalar remainder.
-// Reachable via the compile-time SVE path or the runtime (`std`) dispatcher;
-// otherwise (e.g. a `no_std` NEON-only build) it would be dead code.
 #[cfg(all(
     target_arch = "aarch64",
     simd_popcnt_have_sve,
