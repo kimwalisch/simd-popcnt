@@ -94,9 +94,10 @@ ARM SVE is a vector instruction set for ARM CPUs, first widely available in
 algorithms can be considerably faster than NEON algorithms, which are limited to
 a 128-bit vector length.
 
-On Linux and Windows, `simd-popcnt` detects at runtime whether the CPU supports
-SVE and, if so, dispatches to the SVE popcount algorithm; otherwise it
-transparently falls back to the portable NEON algorithm.
+`simd-popcnt` detects at runtime whether the CPU supports SVE and, if so,
+dispatches to the SVE popcount algorithm; otherwise it transparently falls back
+to the NEON algorithm. Runtime SVE detection works on every operating system
+supported by Rust's standard library (Linux, Windows, macOS, FreeBSD, …).
 
 One Rust-specific caveat: the SVE intrinsics in `std::arch` are still
 nightly-only (`feature(stdarch_aarch64_sve)`). A build script probes whether the
