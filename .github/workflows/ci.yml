@@ -147,12 +147,13 @@ jobs:
       # Point Cargo's target runner at Valgrind so `cargo test` / `cargo run`
       # execute the compiled binaries under memcheck. `--error-exitcode=1` fails
       # the job on any detected issue: invalid / out-of-bounds reads or writes,
-      # use of uninitialized memory, bad frees, and memory leaks. Only
-      # "definite"/"possible" leaks count as errors (Valgrind's default), so the
-      # benign "still reachable" allocations Rust's runtime leaves at exit don't
-      # trigger false failures. Only the runner matching the host triple is used.
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: valgrind --error-exitcode=1 --leak-check=full --errors-for-leak-kinds=definite,possible --track-origins=yes
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER: valgrind --error-exitcode=1 --leak-check=full --errors-for-leak-kinds=definite,possible --track-origins=yes
+      # use of uninitialized memory, bad frees, and memory leaks. Only "definite"
+      # leaks count as errors: Rust's test harness and thread-local runtime leave
+      # benign "possibly lost" / "still reachable" blocks (interior TLS pointers)
+      # that are not real leaks and must not fail the job. Non-leak memory errors
+      # always fail regardless. Only the runner matching the host triple is used.
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: valgrind --error-exitcode=1 --leak-check=full --errors-for-leak-kinds=definite --track-origins=yes
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER: valgrind --error-exitcode=1 --leak-check=full --errors-for-leak-kinds=definite --track-origins=yes
       # Line-level debug info gives readable Valgrind backtraces without
       # disabling optimizations, so the SIMD paths are still exercised.
       CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
