@@ -1,6 +1,9 @@
 # simd-popcnt
 
 [![CI](https://github.com/kimwalisch/simd-popcnt/actions/workflows/ci.yml/badge.svg)](https://github.com/kimwalisch/simd-popcnt/actions/workflows/ci.yml)
+[![docs.rs](https://docs.rs/simd-popcnt/badge.svg)](https://docs.rs/simd-popcnt)
+[![crates.io](https://img.shields.io/crates/v/simd-popcnt.svg)](https://crates.io/crates/simd-popcnt)
+![msrv](https://img.shields.io/crates/msrv/simd-popcnt.svg)
 
 `simd-popcnt` is a Rust library for counting the number of 1 bits (bit
 population count, a.k.a. Hamming weight) in an array as quickly as possible
@@ -49,11 +52,6 @@ assert_eq!("hello".as_bytes().popcnt(), 21);
 
 Population count is independent of byte order, so `.popcnt()` gives the same
 result on little- and big-endian targets.
-
-## Minimum supported Rust version
-
-Rust **1.89** (the release that stabilized the AVX512 intrinsics in `std::arch`).
-ARM SVE support additionally requires a nightly toolchain.
 
 ## CPU architectures
 
