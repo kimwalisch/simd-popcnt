@@ -14,5 +14,15 @@ categories   = ["algorithms"]
 # rust-toolchain.toml is ignored by downstream builds anyway (and pins nightly).
 exclude      = [".github", "rust-toolchain.toml"]
 
+[features]
+default = ["std"]
+# Enables runtime CPU feature detection (SIMD dispatch) via `std::arch`. Turn it
+# off (`default-features = false`) for a `no_std` build, which uses only the
+# compile-time target-feature paths plus the scalar fallback. Note: even with
+# this feature enabled, the crate compiles as `no_std` automatically whenever the
+# build has no runtime dispatch left to do — e.g. under `-C target-cpu=native` on
+# x86, or on any non-x86/AArch64 target — because it then never touches `std`.
+std = []
+
 [lib]
 name = "simd_popcnt"

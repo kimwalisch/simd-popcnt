@@ -135,6 +135,39 @@ jobs:
         env:
           CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
 
+  # `no_std` build. The `test_native` / `arm_linux_native` jobs already compile
+  # the crate as `no_std` implicitly (target-cpu=native disables runtime dispatch,
+  # so the crate stops touching `std`), but they keep the `std` feature *on* and
+  # run on std-capable targets. This job covers the two things they cannot:
+  #   * `--no-default-features` — the `std` feature actually turned off, which is
+  #     the knob downstream `no_std` users flip and which selects a distinct
+  #     scalar-fallback code path.
+  #   * bare-metal targets with no `std` in the sysroot, so a stray `std`
+  #     reference is a hard link error rather than a silently-available symbol.
+  # Build-only: bare-metal targets have no test harness to run.
+  no_std:
+    name: no_std (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # x86_64 exercises the scalar fallback; aarch64 the baseline-NEON path.
+        target: [x86_64-unknown-none, aarch64-unknown-none]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly + bare-metal target
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build no_std
+        run: cargo build --no-default-features --target ${{ matrix.target }}
+
   # Run the test suite on a real AArch64 Linux CPU (the runner supports ARM SVE).
   #  * nightly: the build.rs probe enables the SVE intrinsics, so the ARM SVE
   #    popcount algorithm is compiled and executed (NEON otherwise).

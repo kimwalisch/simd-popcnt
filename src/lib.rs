@@ -33,14 +33,44 @@
 
 // Enable SVE intrinsics only when build.rs confirmed they compile on this rustc.
 #![cfg_attr(simd_popcnt_have_sve, feature(stdarch_aarch64_sve))]
+// Compile as `no_std` unless we actually need `std`. The *only* thing that needs
+// `std` is runtime CPU feature detection (`is_x86_feature_detected!` /
+// `is_aarch64_feature_detected!`), which is compiled only when the `std` feature
+// is on AND there is still dispatch to do at runtime — i.e. no SIMD path was
+// already picked at compile time. On x86 that means neither AVX2 nor AVX512 is
+// statically enabled; on AArch64 it means the SVE probe succeeded but SVE was not
+// statically enabled. In every other case (feature off, `-C target-cpu=native`,
+// a non-x86/AArch64 target, …) the crate touches only `core`, so it is `no_std`.
+// `not(test)` keeps `std` for the unit tests, which use `Vec`, `std::env`, etc.
+#![cfg_attr(
+    not(any(
+        test,
+        all(
+            feature = "std",
+            any(target_arch = "x86", target_arch = "x86_64"),
+            not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq")),
+        ),
+        all(
+            feature = "std",
+            target_arch = "aarch64",
+            simd_popcnt_have_sve,
+            not(target_feature = "sve"),
+        ),
+    )),
+    no_std
+)]
 
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
+// Glob of platform intrinsics; which subset is used depends on the SIMD paths
+// compiled, so in a scalar-only `no_std` build the import can be unused.
 #[cfg(target_arch = "x86")]
+#[allow(unused_imports)]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
+#[allow(unused_imports)]
 use core::arch::x86_64::*;
-#[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
+#[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve, feature = "std"))]
 use std::arch::is_aarch64_feature_detected;
 
 /// Counts the number of one bits (population count) in `bytes`.
@@ -197,10 +227,24 @@ fn popcnt_x86(bytes: &[u8]) -> u64 {
         cnt + popcnt_scalar_static(rest)
     }
 
-    // No SIMD enabled at compile time: detect at runtime.
-    #[cfg(not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq")))]
+    // No SIMD enabled at compile time: detect at runtime (needs `std`).
+    #[cfg(all(
+        not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq")),
+        feature = "std"
+    ))]
     {
         popcnt_x86_runtime(bytes)
+    }
+
+    // No SIMD and no `std` for runtime detection (`no_std` build): use the
+    // compile-time scalar path — hardware POPCNT if statically enabled, else the
+    // portable integer fallback.
+    #[cfg(all(
+        not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq")),
+        not(feature = "std")
+    ))]
+    {
+        popcnt_scalar_static(bytes)
     }
 }
 
@@ -208,7 +252,13 @@ fn popcnt_x86(bytes: &[u8]) -> u64 {
 /// hardware POPCNT when statically enabled, otherwise the integer fallback.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
-    any(target_feature = "avx2", target_feature = "avx512vpopcntdq")
+    // Used by the compile-time SIMD paths' tails and, in a `no_std` build, as the
+    // whole-array scalar path when no SIMD is statically enabled.
+    any(
+        target_feature = "avx2",
+        target_feature = "avx512vpopcntdq",
+        not(feature = "std")
+    )
 ))]
 #[inline]
 fn popcnt_scalar_static(bytes: &[u8]) -> u64 {
@@ -228,7 +278,8 @@ fn popcnt_scalar_static(bytes: &[u8]) -> u64 {
 /// outcome so subsequent calls only load a single atomic.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
-    not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq"))
+    not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq")),
+    feature = "std"
 ))]
 #[inline]
 fn has_avx512() -> bool {
@@ -249,7 +300,8 @@ fn has_avx512() -> bool {
 /// SIMD feature is statically enabled (otherwise the compile-time paths run).
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
-    not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq"))
+    not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq")),
+    feature = "std"
 ))]
 #[inline]
 fn popcnt_x86_runtime(bytes: &[u8]) -> u64 {
@@ -298,7 +350,10 @@ fn popcnt_scalar_hw(bytes: &[u8]) -> u64 {
 /// computed across all lanes in parallel.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
-    not(target_feature = "avx512vpopcntdq")
+    not(target_feature = "avx512vpopcntdq"),
+    // Reachable via the compile-time AVX2 path or the runtime (`std`) dispatcher;
+    // otherwise (e.g. a `no_std` scalar-only build) it would be dead code.
+    any(target_feature = "avx2", feature = "std")
 ))]
 #[target_feature(enable = "avx2")]
 #[inline]
@@ -313,7 +368,10 @@ fn csa256(a: __m256i, b: __m256i, c: __m256i) -> (__m256i, __m256i) {
 /// horizontal sum of each 8-byte lane via `_mm256_sad_epu8` (result in 4 u64s).
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
-    not(target_feature = "avx512vpopcntdq")
+    not(target_feature = "avx512vpopcntdq"),
+    // Reachable via the compile-time AVX2 path or the runtime (`std`) dispatcher;
+    // otherwise (e.g. a `no_std` scalar-only build) it would be dead code.
+    any(target_feature = "avx2", feature = "std")
 ))]
 #[target_feature(enable = "avx2")]
 #[inline]
@@ -341,7 +399,10 @@ fn popcnt256(v: __m256i) -> __m256i {
 /// `bytes.len()` must be a multiple of 32.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
-    not(target_feature = "avx512vpopcntdq")
+    not(target_feature = "avx512vpopcntdq"),
+    // Reachable via the compile-time AVX2 path or the runtime (`std`) dispatcher;
+    // otherwise (e.g. a `no_std` scalar-only build) it would be dead code.
+    any(target_feature = "avx2", feature = "std")
 ))]
 #[target_feature(enable = "avx2")]
 #[inline]
@@ -413,7 +474,12 @@ fn popcnt_avx2(bytes: &[u8]) -> u64 {
 /// 1..=63 bytes.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
-    any(not(target_feature = "avx2"), target_feature = "avx512vpopcntdq")
+    // Reachable via the runtime (`std`) dispatcher when no SIMD is statically
+    // enabled, or via the compile-time AVX512 path.
+    any(
+        all(not(target_feature = "avx2"), feature = "std"),
+        target_feature = "avx512vpopcntdq"
+    )
 ))]
 #[target_feature(enable = "avx512f,avx512bw,avx512vpopcntdq")]
 #[inline]
@@ -489,8 +555,9 @@ fn vpadalq(sum: uint64x2_t, t: uint8x16_t) -> uint64x2_t {
 #[cfg(target_arch = "aarch64")]
 #[inline]
 fn popcnt_neon(bytes: &[u8]) -> u64 {
-    // Runtime SVE dispatch (present only when the build probe enabled SVE).
-    #[cfg(simd_popcnt_have_sve)]
+    // Runtime SVE dispatch (present only when the build probe enabled SVE and
+    // `std` is available for runtime feature detection).
+    #[cfg(all(simd_popcnt_have_sve, feature = "std"))]
     if is_aarch64_feature_detected!("sve") {
         return unsafe { popcnt_arm_sve(bytes) };
     }
@@ -550,7 +617,13 @@ fn popcnt_neon(bytes: &[u8]) -> u64 {
 
 /// SVE population count: a 4×-unrolled main loop over full vectors, then a
 /// predicated tail loop that needs no separate scalar remainder.
-#[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
+// Reachable via the compile-time SVE path or the runtime (`std`) dispatcher;
+// otherwise (e.g. a `no_std` NEON-only build) it would be dead code.
+#[cfg(all(
+    target_arch = "aarch64",
+    simd_popcnt_have_sve,
+    any(target_feature = "sve", feature = "std")
+))]
 #[target_feature(enable = "sve")]
 #[inline]
 fn popcnt_arm_sve(bytes: &[u8]) -> u64 {

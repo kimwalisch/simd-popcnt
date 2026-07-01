@@ -90,6 +90,26 @@ If you compile with `RUSTFLAGS="-C target-cpu=native"` on, say, an x86 CPU with
 AVX512 support, all runtime feature checks are removed and the best algorithm is
 selected at compile time.
 
+## `no_std`
+
+Runtime CPU feature detection is the only part of the crate that needs `std`, so
+it lives behind a default-on `std` feature. Disable it for a `no_std` build:
+
+```toml
+[dependencies]
+simd-popcnt = { version = "0.1", default-features = false }
+```
+
+Without `std` the crate selects its SIMD path purely at compile time (from the
+enabled target features) and falls back to the portable integer algorithm
+otherwise — so build `no_std` consumers with `-C target-cpu=native` (or an
+explicit `-C target-feature=…`) to get hardware acceleration.
+
+Because runtime detection is the sole user of `std`, the crate also becomes
+`no_std` *automatically* whenever a build has no runtime dispatch left to do —
+for example under `-C target-cpu=native` on x86, or on any non-x86/AArch64
+target — even with the `std` feature enabled.
+
 ## ARM SVE (Scalable Vector Extension)
 
 ARM SVE is a vector instruction set for ARM CPUs, first widely available in
