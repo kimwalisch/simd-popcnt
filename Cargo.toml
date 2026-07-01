@@ -13,11 +13,3 @@ categories   = ["algorithms"]
 
 [lib]
 name = "simd_popcnt"
-
-# ARM SVE runtime detection on Linux/Android — only compiled on aarch64.
-[target.'cfg(all(target_arch = "aarch64", any(target_os = "linux", target_os = "android")))'.dependencies]
-libc = "0.2"
-
-# ARM SVE runtime detection on Windows ARM64.
-[target.'cfg(all(target_arch = "aarch64", target_os = "windows"))'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_Threading"] }

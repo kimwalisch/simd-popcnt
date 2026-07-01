@@ -209,6 +209,28 @@ fn popcnt_scalar_static(bytes: &[u8]) -> u64 {
     }
 }
 
+/// Cached runtime check for AVX-512F + AVX-512BW + AVX-512VPOPCNTDQ support.
+/// Reads three `is_x86_feature_detected!` results once and stores the combined
+/// outcome so subsequent calls only load a single atomic.
+#[cfg(all(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq"))
+))]
+fn has_avx512() -> bool {
+    use core::sync::atomic::{AtomicI32, Ordering};
+    static HAS_AVX512: AtomicI32 = AtomicI32::new(-1);
+    let cached = HAS_AVX512.load(Ordering::Relaxed);
+    if cached != -1 {
+        return cached != 0;
+    }
+    let v = (is_x86_feature_detected!("avx512f")
+        && is_x86_feature_detected!("avx512bw")
+        && is_x86_feature_detected!("avx512vpopcntdq")) as i32;
+    HAS_AVX512.store(v, Ordering::Relaxed);
+    v != 0
+}
+
+
 /// Runtime dispatch using cached CPU feature detection. Only compiled when no
 /// SIMD feature is statically enabled (otherwise the compile-time paths run).
 #[cfg(all(
@@ -217,11 +239,7 @@ fn popcnt_scalar_static(bytes: &[u8]) -> u64 {
 ))]
 fn popcnt_x86_runtime(bytes: &[u8]) -> u64 {
     // AVX512: not worth its setup cost below ~40 bytes, handles any length.
-    if bytes.len() >= 40
-        && is_x86_feature_detected!("avx512f")
-        && is_x86_feature_detected!("avx512bw")
-        && is_x86_feature_detected!("avx512vpopcntdq")
-    {
+    if bytes.len() >= 40 && has_avx512() {
         return unsafe { popcnt_avx512(bytes) };
     }
 
@@ -453,22 +471,8 @@ fn vpadalq(sum: uint64x2_t, t: uint8x16_t) -> uint64x2_t {
 fn popcnt_neon(bytes: &[u8]) -> u64 {
     // Runtime SVE dispatch (present only when the build probe enabled SVE).
     #[cfg(simd_popcnt_have_sve)]
-    {
-        // Cached SVE support (-1 = unknown). Relaxed ordering is fine: the
-        // value is idempotent and guards no other state.
-        use core::sync::atomic::{AtomicI32, Ordering};
-        static SVE_SUPPORT: AtomicI32 = AtomicI32::new(-1);
-        let cached = SVE_SUPPORT.load(Ordering::Relaxed);
-        let has_sve = if cached == -1 {
-            let v = has_arm_sve() as i32;
-            SVE_SUPPORT.store(v, Ordering::Relaxed);
-            v
-        } else {
-            cached
-        };
-        if has_sve != 0 {
-            return unsafe { popcnt_arm_sve(bytes) };
-        }
+    if is_aarch64_feature_detected!("sve") {
+        return unsafe { popcnt_arm_sve(bytes) };
     }
 
     // NEON path.
@@ -523,27 +527,6 @@ fn popcnt_neon(bytes: &[u8]) -> u64 {
 }
 
 // ── ARM SVE ─────────────────────────────────────────────────────────────────
-
-#[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
-fn has_arm_sve() -> bool {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        let hwcaps = unsafe { libc::getauxval(libc::AT_HWCAP) };
-        hwcaps & libc::HWCAP_SVE != 0
-    }
-    #[cfg(target_os = "windows")]
-    {
-        use windows_sys::Win32::System::Threading::IsProcessorFeaturePresent;
-        // windows-sys 0.59 doesn't define PF_ARM_SVE_INSTRUCTIONS_AVAILABLE (39)
-        // yet, so use the literal value.
-        const PF_ARM_SVE_INSTRUCTIONS_AVAILABLE: u32 = 39;
-        unsafe { IsProcessorFeaturePresent(PF_ARM_SVE_INSTRUCTIONS_AVAILABLE) != 0 }
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "windows")))]
-    {
-        false
-    }
-}
 
 /// SVE population count: a 4×-unrolled main loop over full vectors, then a
 /// predicated tail loop that needs no separate scalar remainder.
