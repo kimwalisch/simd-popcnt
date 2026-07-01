@@ -160,6 +160,7 @@ macro_rules! popcnt_scalar_loop {
 
 /// Portable scalar population count via [`u64::count_ones`].
 #[allow(dead_code)]
+#[inline]
 fn popcnt_scalar(bytes: &[u8]) -> u64 {
     popcnt_scalar_loop!(bytes)
 }
@@ -169,6 +170,7 @@ fn popcnt_scalar(bytes: &[u8]) -> u64 {
 // ════════════════════════════════════════════════════════════════════════════
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[inline]
 fn popcnt_x86(bytes: &[u8]) -> u64 {
     // Compile-time AVX512 path (e.g. with `-C target-cpu=native`).
     #[cfg(target_feature = "avx512vpopcntdq")]
@@ -228,6 +230,7 @@ fn popcnt_scalar_static(bytes: &[u8]) -> u64 {
     any(target_arch = "x86", target_arch = "x86_64"),
     not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq"))
 ))]
+#[inline]
 fn has_avx512() -> bool {
     use core::sync::atomic::{AtomicI32, Ordering};
     static HAS_AVX512: AtomicI32 = AtomicI32::new(-1);
@@ -248,6 +251,7 @@ fn has_avx512() -> bool {
     any(target_arch = "x86", target_arch = "x86_64"),
     not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq"))
 ))]
+#[inline]
 fn popcnt_x86_runtime(bytes: &[u8]) -> u64 {
     // AVX512: not worth its setup cost below ~40 bytes, handles any length.
     if bytes.len() >= 40 && has_avx512() {
@@ -283,6 +287,7 @@ fn popcnt_x86_runtime(bytes: &[u8]) -> u64 {
 #[allow(dead_code)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "popcnt")]
+#[inline]
 fn popcnt_scalar_hw(bytes: &[u8]) -> u64 {
     popcnt_scalar_loop!(bytes) // count_ones() lowers to popcntq here
 }
@@ -339,6 +344,7 @@ fn popcnt256(v: __m256i) -> __m256i {
     not(target_feature = "avx512vpopcntdq")
 ))]
 #[target_feature(enable = "avx2")]
+#[inline]
 // Hand-aligned: keep the 16-way CSA tree readable.
 #[rustfmt::skip]
 fn popcnt_avx2(bytes: &[u8]) -> u64 {
@@ -410,6 +416,7 @@ fn popcnt_avx2(bytes: &[u8]) -> u64 {
     any(not(target_feature = "avx2"), target_feature = "avx512vpopcntdq")
 ))]
 #[target_feature(enable = "avx512f,avx512bw,avx512vpopcntdq")]
+#[inline]
 fn popcnt_avx512(bytes: &[u8]) -> u64 {
     let mut cnt = _mm512_setzero_si512();
 
@@ -458,6 +465,7 @@ fn popcnt_avx512(bytes: &[u8]) -> u64 {
 // ════════════════════════════════════════════════════════════════════════════
 
 #[cfg(target_arch = "aarch64")]
+#[inline]
 fn popcnt_aarch64(bytes: &[u8]) -> u64 {
     // Compile-time SVE path.
     #[cfg(all(target_feature = "sve", simd_popcnt_have_sve))]
@@ -479,6 +487,7 @@ fn vpadalq(sum: uint64x2_t, t: uint8x16_t) -> uint64x2_t {
 }
 
 #[cfg(target_arch = "aarch64")]
+#[inline]
 fn popcnt_neon(bytes: &[u8]) -> u64 {
     // Runtime SVE dispatch (present only when the build probe enabled SVE).
     #[cfg(simd_popcnt_have_sve)]
@@ -543,6 +552,7 @@ fn popcnt_neon(bytes: &[u8]) -> u64 {
 /// predicated tail loop that needs no separate scalar remainder.
 #[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
 #[target_feature(enable = "sve")]
+#[inline]
 fn popcnt_arm_sve(bytes: &[u8]) -> u64 {
     // SAFETY: the loop bound keeps each full load within `len`; the tail loop's
     // predicate masks off any lanes past the end.
