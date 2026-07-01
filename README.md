@@ -91,9 +91,10 @@ selected at compile time.
 ## ARM SVE (Scalable Vector Extension)
 
 ARM SVE is a vector instruction set for ARM CPUs, first widely available in
-2020. It supports a variable vector length from 128 up to 2048 bits, so SVE
-algorithms can be considerably faster than NEON algorithms, which are limited to
-a 128-bit vector length.
+2020. Unlike NEON's fixed 128-bit vectors, SVE's vector length is
+implementation-defined (128 up to 2048 bits). The SVE popcount algorithm is
+faster than the NEON one, especially on CPUs whose SVE vector width is larger
+than NEON's 128 bits.
 
 `simd-popcnt` detects at runtime whether the CPU supports SVE and, if so,
 dispatches to the SVE popcount algorithm; otherwise it transparently falls back
