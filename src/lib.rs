@@ -70,7 +70,14 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 #[allow(unused_imports)]
 use core::arch::x86_64::*;
-#[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve, feature = "std"))]
+// Needed only for the runtime SVE check in `popcnt_neon`, which exists only when
+// the NEON path is compiled (no compile-time SVE) and `std` is available.
+#[cfg(all(
+    target_arch = "aarch64",
+    simd_popcnt_have_sve,
+    feature = "std",
+    not(target_feature = "sve")
+))]
 use std::arch::is_aarch64_feature_detected;
 
 /// Counts the number of one bits (population count) in `bytes`.
@@ -546,13 +553,22 @@ fn popcnt_aarch64(bytes: &[u8]) -> u64 {
     }
 }
 
-#[cfg(target_arch = "aarch64")]
+// Compiled only when the NEON path can actually run, i.e. the compile-time SVE
+// path is not active (matching the `popcnt_aarch64` branch that calls it);
+// otherwise `-C target-cpu=native` on an SVE CPU would leave it dead.
+#[cfg(all(
+    target_arch = "aarch64",
+    not(all(target_feature = "sve", simd_popcnt_have_sve))
+))]
 #[inline]
 fn vpadalq(sum: uint64x2_t, t: uint8x16_t) -> uint64x2_t {
     unsafe { vpadalq_u32(sum, vpaddlq_u16(vpaddlq_u8(t))) }
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(
+    target_arch = "aarch64",
+    not(all(target_feature = "sve", simd_popcnt_have_sve))
+))]
 #[inline]
 fn popcnt_neon(bytes: &[u8]) -> u64 {
     // Runtime SVE dispatch (present only when the build probe enabled SVE and
