@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1] - 2026-07-01
 
-Documentation-only release; no changes to the library code or public API.
+No changes to the library code or public API — documentation and CI/testing
+improvements only.
 
 - Added README badges: crates.io version, docs.rs, CI status, and minimum
   supported Rust version.
@@ -15,6 +16,12 @@ Documentation-only release; no changes to the library code or public API.
   library.
 - Added a note inviting a bug report if another crate is faster for your use
   case.
+- Refreshed the crate-level (`lib.rs`) documentation to match the README: the
+  portable `u64::count_ones()` fallback, thread-safety, zero dependencies, and
+  a usage example covering `PopcntExt`.
+- Added Valgrind memcheck CI jobs (x86-64 and AArch64) that run the test suite
+  and benchmark under memcheck to check the SIMD code for memory-safety
+  undefined behavior.
 
 ## [0.1.0] - 2026-07-01
 
