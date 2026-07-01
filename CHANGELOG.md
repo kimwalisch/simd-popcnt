@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Rust version.
 
 ### Changed
+- Improved ARM NEON performance by up to 2x.
 - Annotated the dispatch glue and SIMD kernels with `#[inline]` so the runtime
   dispatch ladder collapses into the caller, and native builds can inline the
   whole path — reducing per-call overhead, most noticeably for small arrays.
