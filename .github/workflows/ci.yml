@@ -62,6 +62,50 @@ jobs:
         if: matrix.profile == 'release'
         run: cargo run --release --example benchmark
 
+  # Native builds (`-C target-cpu=native`) tell the compiler to target the exact
+  # CPU of the runner. This selects the best SIMD path at compile time and, in
+  # doing so, *removes* the runtime dispatch: instead of `popcnt_x86_runtime`,
+  # the `#[cfg(target_feature = "…")]` branches are compiled (compile-time AVX2 /
+  # AVX512 on x86, NEON / SVE on AArch64). The default `test` job never sets any
+  # target feature, so without this those branches are never compiled, linted or
+  # executed. Runs on the same three OSes to cover MSVC, macOS and glibc.
+  test_native:
+    name: Native ${{ matrix.os }} (${{ matrix.profile }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        profile: [debug, release]
+    env:
+      # A job-level `env:` replaces the workflow-level `RUSTFLAGS` (it does not
+      # append), so `-D warnings` must be repeated here to keep -Werror.
+      RUSTFLAGS: -C target-cpu=native -D warnings
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # Lint the compile-time SIMD branches that target-cpu=native selects; the
+      # default clippy job cannot see them because it builds no target feature.
+      - name: Clippy
+        if: matrix.profile == 'debug'
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run test suite
+        run: cargo test ${{ matrix.profile == 'release' && '--release' || '' }}
+
+      - name: Run benchmark
+        if: matrix.profile == 'release'
+        run: cargo run --release --example benchmark
+
   wasm:
     name: WebAssembly (wasm32-wasip1)
     runs-on: ubuntu-latest
@@ -126,6 +170,41 @@ jobs:
 
       # In release mode, also run the benchmark (default args) so the ARM SVE
       # (nightly) and ARM NEON (stable) throughput is reported in the logs.
+      - name: Run benchmark
+        if: matrix.profile == 'release'
+        run: cargo run --release --example benchmark
+
+  # Native AArch64 build (`-C target-cpu=native`): as with `test_native`, this
+  # compiles the `#[cfg(target_feature = "…")]` AArch64 branch selected for the
+  # runner's CPU (SVE when the CPU and the nightly probe both support it,
+  # otherwise NEON) instead of the runtime-dispatch path.
+  arm_linux_native:
+    name: Native ARM64 Linux (${{ matrix.toolchain }}, ${{ matrix.profile }})
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [nightly, stable]
+        profile: [debug, release]
+    env:
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
+      # Job-level env replaces the workflow-level RUSTFLAGS; keep -D warnings.
+      RUSTFLAGS: -C target-cpu=native -D warnings
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust ${{ matrix.toolchain }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run test suite
+        run: cargo test ${{ matrix.profile == 'release' && '--release' || '' }}
+
       - name: Run benchmark
         if: matrix.profile == 'release'
         run: cargo run --release --example benchmark
