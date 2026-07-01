@@ -14,7 +14,7 @@ It has no dependencies other than the Rust standard library.
 1-bits in an array. If it runs slower than another library for your particular
 use case, you are welcome to [submit a bug report](https://github.com/kimwalisch/simd-popcnt/issues).
 
-It is an AI-assisted Rust port of the [libpopcnt C/C++ library](https://github.com/kimwalisch/libpopcnt).
+`simd-popcnt` is an AI-assisted Rust port of the [libpopcnt C/C++ library](https://github.com/kimwalisch/libpopcnt).
 
 ## API
 
