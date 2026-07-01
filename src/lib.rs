@@ -26,12 +26,12 @@
 
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
-#[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
-use std::arch::is_aarch64_feature_detected;
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
+#[cfg(all(target_arch = "aarch64", simd_popcnt_have_sve))]
+use std::arch::is_aarch64_feature_detected;
 
 /// Counts the number of one bits (population count) in `bytes`.
 ///
@@ -231,7 +231,6 @@ fn has_avx512() -> bool {
     HAS_AVX512.store(v, Ordering::Relaxed);
     v != 0
 }
-
 
 /// Runtime dispatch using cached CPU feature detection. Only compiled when no
 /// SIMD feature is statically enabled (otherwise the compile-time paths run).
