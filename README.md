@@ -45,14 +45,11 @@ use simd_popcnt::{popcnt, PopcntExt};
 assert_eq!(popcnt(&[0xFF, 0x0F]), 12);
 
 // Wider integer types via the `PopcntExt::popcnt` method:
-assert_eq!([u64::MAX, 0x0F0F_0F0F_0F0F_0F0F].popcnt(), 96); // [u64; 2]
-assert_eq!([0xFFFFu16, 0x00FF, 0x0001].popcnt(), 25);       // [u16; 3]
-assert_eq!(vec![1u32, 2, 3, 4].popcnt(), 5);                // Vec<u32>
-
 let data: &[u64] = &[1, 2, 3];
-assert_eq!(data.popcnt(), 4);                               // &[u64]
+assert_eq!(data.popcnt(), 4);                // &[u64]
+assert_eq!(vec![1u32, 2, 3, 4].popcnt(), 5); // Vec<u32>
 
-// Text: count the set bits in a string's UTF-8 bytes.
+// Count the set bits in a string's UTF-8 bytes.
 assert_eq!("hello".as_bytes().popcnt(), 21);
 ```
 
