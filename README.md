@@ -1,6 +1,7 @@
 # simd-popcnt
 
 [![CI](https://github.com/kimwalisch/simd-popcnt/actions/workflows/ci.yml/badge.svg)](https://github.com/kimwalisch/simd-popcnt/actions/workflows/ci.yml)
+[![benchmark](https://github.com/kimwalisch/simd-popcnt/actions/workflows/benchmark.yml/badge.svg)](https://github.com/kimwalisch/simd-popcnt/actions/workflows/benchmark.yml)
 [![docs.rs](https://docs.rs/simd-popcnt/badge.svg)](https://docs.rs/simd-popcnt)
 [![crates.io](https://img.shields.io/crates/v/simd-popcnt.svg)](https://crates.io/crates/simd-popcnt)
 ![minimum rustc 1.89](https://img.shields.io/badge/rustc-1.89+-blue.svg)
