@@ -5,10 +5,8 @@
 
 name: benchmark
 
-on:
-  push:
-    branches: [main]
-  pull_request:
+# Run on every push, so any branch (including feature branches) is benchmarked.
+on: push
 
 jobs:
   benchmark:
