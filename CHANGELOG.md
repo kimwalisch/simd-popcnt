@@ -12,6 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   code against the previous release at several array sizes and fails on a more
   than 2% throughput regression, plus a benchmark status badge in the README.
 
+### Changed
+- Much faster small-array counting on the x86-64 runtime-dispatch path (up to
+  ~3.5x for tiny arrays, ~2x around 100 bytes): the scalar POPCNT loop now emits
+  the `popcnt` instruction through inline assembly instead of a
+  `#[target_feature(enable = "popcnt")]` helper. A target-feature function
+  cannot be inlined into the feature-less dispatcher, so it forced a real call
+  on every count; the inline-asm helper carries no such barrier and folds
+  directly into the dispatcher (as libpopcnt's `__asm__("popcnt …")` and MSVC's
+  `__popcnt64` do). The runtime POPCNT check is unchanged.
+- The 1..=7 byte scalar tail no longer copies through a `memcpy` libcall; it is
+  packed into a `u64` with an inlinable shift-or loop.
+
 ## [0.2.0] - 2026-07-01
 
 ### Added

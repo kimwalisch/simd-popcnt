@@ -167,11 +167,18 @@ impl_popcnt_ext!(
 /// Packs the trailing `rem.len()` (0..=7) bytes into a zero-padded `u64` for
 /// counting. Uses native byte order (the popcount is order-independent), which
 /// avoids a byte swap on big-endian targets.
+///
+/// The bytes are folded in with a shift-or loop rather than `copy_from_slice`:
+/// with a runtime length the latter lowers to a `memcpy` libcall, which — for
+/// the 1..=7 tail bytes — costs more than the popcount it feeds. The explicit
+/// loop inlines to a short branch chain (matching libpopcnt's tail handling).
 #[inline]
 fn tail_u64(rem: &[u8]) -> u64 {
-    let mut buf = [0u8; 8];
-    buf[..rem.len()].copy_from_slice(rem);
-    u64::from_ne_bytes(buf)
+    let mut v = 0u64;
+    for (j, &b) in rem.iter().enumerate() {
+        v |= (b as u64) << (j * 8);
+    }
+    v
 }
 
 /// Scalar population count loop, summing `count_ones()` over 8-byte chunks.
@@ -326,7 +333,20 @@ fn popcnt_x86_runtime(bytes: &[u8]) -> u64 {
     // function, `count_ones()` compiles to a software fallback even on
     // POPCNT-capable CPUs.
     cnt += if is_x86_feature_detected!("popcnt") {
-        unsafe { popcnt_scalar_hw(rest) }
+        // SAFETY: the POPCNT runtime check above just passed.
+        //
+        // On x86-64 use the inline-asm scalar loop, which inlines into this
+        // dispatcher (no `call`); the `#[target_feature]` variant cannot be
+        // inlined here and would cost a real call on every tiny array. On 32-bit
+        // x86 keep the `#[target_feature]` path (no 64-bit `popcnt` reg there).
+        #[cfg(target_arch = "x86_64")]
+        {
+            unsafe { popcnt_scalar_asm(rest) }
+        }
+        #[cfg(target_arch = "x86")]
+        {
+            unsafe { popcnt_scalar_hw(rest) }
+        }
     } else {
         popcnt_scalar(rest)
     };
@@ -343,6 +363,57 @@ fn popcnt_x86_runtime(bytes: &[u8]) -> u64 {
 #[inline]
 fn popcnt_scalar_hw(bytes: &[u8]) -> u64 {
     popcnt_scalar_loop!(bytes) // count_ones() lowers to popcntq here
+}
+
+/// Population count of a `u64` via the `popcnt` instruction emitted with inline
+/// assembly. Unlike `count_ones()` — which only lowers to `popcnt` inside a
+/// `#[target_feature(enable = "popcnt")]` function — and unlike the `_popcnt64`
+/// intrinsic (also target-feature gated), inline asm carries no target-feature
+/// attribute, so this helper has no inlining barrier and folds straight into the
+/// runtime dispatcher. That mirrors libpopcnt's `__asm__("popcnt …")` path on
+/// GCC/clang and MSVC's `__popcnt64`, avoiding the non-inlinable call the
+/// `#[target_feature]` variant forces on tiny arrays.
+///
+/// The `popcnt` mnemonic is emitted unconditionally (the assembler does not
+/// require the feature enabled), so reaching this on a CPU without POPCNT is an
+/// illegal instruction. Callers must gate on a runtime POPCNT check first —
+/// hence `unsafe`.
+#[allow(dead_code)]
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn popcnt64_asm(x: u64) -> u64 {
+    let out: u64;
+    // `popcnt` writes ZF (so no `preserves_flags`); it is a pure register→register
+    // op that touches no memory, which `pure`/`nomem` let the optimizer exploit.
+    unsafe {
+        core::arch::asm!(
+            "popcnt {out}, {inp}",
+            inp = in(reg) x,
+            out = out(reg) out,
+            options(pure, nomem, nostack),
+        );
+    }
+    out
+}
+
+/// Scalar POPCNT loop built on the inlinable [`popcnt64_asm`] helper. Unlike
+/// [`popcnt_scalar_hw`], this has no `#[target_feature]` attribute, so it inlines
+/// into the runtime dispatcher (no per-call `call`/`ret`). Only sound once a
+/// runtime POPCNT check has passed; see [`popcnt64_asm`].
+#[allow(dead_code)]
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn popcnt_scalar_asm(bytes: &[u8]) -> u64 {
+    let mut cnt = 0u64;
+    let (chunks, rem) = bytes.as_chunks::<8>();
+    for chunk in chunks {
+        // SAFETY: reached only after the caller's runtime POPCNT check.
+        cnt += unsafe { popcnt64_asm(u64::from_ne_bytes(*chunk)) };
+    }
+    if !rem.is_empty() {
+        cnt += unsafe { popcnt64_asm(tail_u64(rem)) };
+    }
+    cnt
 }
 
 // ── AVX2 ────────────────────────────────────────────────────────────────────
