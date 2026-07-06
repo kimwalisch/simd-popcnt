@@ -523,10 +523,12 @@ fn popcnt_avx2(bytes: &[u8]) -> u64 {
     lanes[0] + lanes[1] + lanes[2] + lanes[3]
 }
 
-/// Plain 2-accumulator `popcnt256` loop for medium arrays (~96 bytes to ~1 KB).
-/// Harley-Seal's fixed CSA-reduction epilogue makes it lose to just running
-/// `popcnt256` in a loop until ~1 KB, and this beats the scalar path from ~96
-/// bytes up. `bytes.len()` must be a multiple of 32.
+/// Plain single-accumulator `popcnt256` loop for medium arrays (~96 bytes to
+/// ~1 KB). No unrolling or extra accumulators: these arrays are only a handful
+/// of vectors, so the accumulator dependency chain never bottlenecks and the
+/// simpler loop is a touch faster. It beats scalar from ~96 bytes, and beats
+/// Harley-Seal — whose fixed CSA-reduction epilogue dominates at these sizes —
+/// until ~1 KB. `bytes.len()` must be a multiple of 32.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     not(target_feature = "avx512vpopcntdq"),
@@ -535,29 +537,14 @@ fn popcnt_avx2(bytes: &[u8]) -> u64 {
 #[target_feature(enable = "avx2")]
 #[inline]
 fn popcnt_avx2_medium(bytes: &[u8]) -> u64 {
-    let mut acc0 = _mm256_setzero_si256();
-    let mut acc1 = _mm256_setzero_si256();
-
-    let (pairs, tail) = bytes.as_chunks::<64>();
-    for chunk in pairs {
-        let p = chunk.as_ptr().cast::<__m256i>();
-        // SAFETY: `chunk` is 64 bytes, so both 32-byte loads are in bounds.
-        unsafe {
-            acc0 = _mm256_add_epi64(acc0, popcnt256(_mm256_loadu_si256(p.add(0))));
-            acc1 = _mm256_add_epi64(acc1, popcnt256(_mm256_loadu_si256(p.add(1))));
-        }
-    }
-
-    // 0 or 1 leftover 32-byte vector (`bytes.len()` is a multiple of 32).
-    let (vecs, _) = tail.as_chunks::<32>();
+    let mut acc = _mm256_setzero_si256();
+    let (vecs, _) = bytes.as_chunks::<32>();
     for chunk in vecs {
         let v = unsafe { _mm256_loadu_si256(chunk.as_ptr().cast::<__m256i>()) };
-        acc0 = _mm256_add_epi64(acc0, popcnt256(v));
+        acc = _mm256_add_epi64(acc, popcnt256(v));
     }
-
-    let cnt = _mm256_add_epi64(acc0, acc1);
     // SAFETY: `__m256i` and `[u64; 4]` are both 32 bytes with no invalid bit patterns.
-    let lanes: [u64; 4] = unsafe { core::mem::transmute(cnt) };
+    let lanes: [u64; 4] = unsafe { core::mem::transmute(acc) };
     lanes[0] + lanes[1] + lanes[2] + lanes[3]
 }
 
