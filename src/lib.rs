@@ -220,8 +220,9 @@ fn popcnt_x86(bytes: &[u8]) -> u64 {
     {
         let mut cnt = 0u64;
         let mut rest = bytes;
-        // A plain `popcnt256` loop for the medium range, Harley-Seal from ~1 KB.
-        if bytes.len() >= 64 {
+        // Scalar below ~96 bytes, a `popcnt256` loop for the medium range,
+        // Harley-Seal from ~1 KB.
+        if bytes.len() >= 96 {
             let n = bytes.len() / 32 * 32;
             cnt += if bytes.len() >= 1024 {
                 unsafe { popcnt_avx2(&bytes[..n]) }
@@ -314,11 +315,12 @@ fn popcnt_x86_runtime(bytes: &[u8]) -> u64 {
     let mut cnt = 0u64;
     let mut rest = bytes;
 
-    // AVX2: a plain `popcnt256` loop for the medium range, Harley-Seal once it
-    // pays off. The `popcnt256` loop beats scalar from ~64 bytes and beats
-    // Harley-Seal until ~1 KB — the lookup-vs-Harley-Seal crossover across
-    // Haswell..Cascadelake in the sse-popcount benchmarks is 1..2 KB.
-    if bytes.len() >= 64 && is_x86_feature_detected!("avx2") {
+    // AVX2: a plain `popcnt256` loop for the medium range, Harley-Seal from
+    // ~1 KB up. Below ~96 bytes scalar POPCNT is faster (on pre-Ice-Lake CPUs
+    // its false-dependency-bound loop still beats AVX2 there); the `popcnt256`
+    // loop beats Harley-Seal until ~1 KB. Thresholds follow the sse-popcount
+    // benchmarks across Haswell..Cascadelake.
+    if bytes.len() >= 96 && is_x86_feature_detected!("avx2") {
         let n = bytes.len() / 32 * 32;
         cnt += if bytes.len() >= 1024 {
             unsafe { popcnt_avx2(&bytes[..n]) }
@@ -521,9 +523,9 @@ fn popcnt_avx2(bytes: &[u8]) -> u64 {
     lanes[0] + lanes[1] + lanes[2] + lanes[3]
 }
 
-/// Plain 2-accumulator `popcnt256` loop for medium arrays (~64 bytes to ~1 KB).
+/// Plain 2-accumulator `popcnt256` loop for medium arrays (~96 bytes to ~1 KB).
 /// Harley-Seal's fixed CSA-reduction epilogue makes it lose to just running
-/// `popcnt256` in a loop until ~1 KB, and this beats the scalar path from ~64
+/// `popcnt256` in a loop until ~1 KB, and this beats the scalar path from ~96
 /// bytes up. `bytes.len()` must be a multiple of 32.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
