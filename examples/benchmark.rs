@@ -95,7 +95,7 @@ fn algorithm(bytes: usize) -> &'static str {
         let popcnt_hw = cfg!(target_feature = "popcnt") || is_x86_feature_detected!("popcnt");
         if avx512 && bytes >= 40 {
             "AVX512"
-        } else if avx2 && bytes >= 512 {
+        } else if avx2 && bytes >= 64 {
             "AVX2"
         } else if popcnt_hw {
             "POPCNT"

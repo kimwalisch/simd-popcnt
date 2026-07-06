@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `__popcnt64` do). The runtime POPCNT check is unchanged.
 - The 1..=7 byte scalar tail no longer copies through a `memcpy` libcall; it is
   packed into a `u64` with an inlinable shift-or loop.
+- Medium arrays (~64 bytes to ~1 KB) now use a lightweight AVX2 `popcnt256` loop
+  rather than the scalar path or Harley-Seal — roughly 1.2–3x faster than scalar
+  across that range on a modern AVX2 CPU. The AVX2 dispatch switches to
+  Harley-Seal at 1 KB, matching the lookup-vs-Harley-Seal crossover measured
+  across Haswell..Cascadelake in the sse-popcount benchmarks, so older x86 CPUs
+  stay on their fastest kernel too.
 
 ## [0.2.0] - 2026-07-01
 

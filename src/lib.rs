@@ -220,10 +220,14 @@ fn popcnt_x86(bytes: &[u8]) -> u64 {
     {
         let mut cnt = 0u64;
         let mut rest = bytes;
-        // AVX2 only wins for arrays >= 512 bytes.
-        if bytes.len() >= 512 {
+        // A plain `popcnt256` loop for the medium range, Harley-Seal from ~1 KB.
+        if bytes.len() >= 64 {
             let n = bytes.len() / 32 * 32;
-            cnt += unsafe { popcnt_avx2(&bytes[..n]) };
+            cnt += if bytes.len() >= 1024 {
+                unsafe { popcnt_avx2(&bytes[..n]) }
+            } else {
+                unsafe { popcnt_avx2_medium(&bytes[..n]) }
+            };
             rest = &bytes[n..];
         }
         cnt + popcnt_scalar_static(rest)
@@ -310,10 +314,17 @@ fn popcnt_x86_runtime(bytes: &[u8]) -> u64 {
     let mut cnt = 0u64;
     let mut rest = bytes;
 
-    // AVX2 only wins for arrays >= 512 bytes.
-    if bytes.len() >= 512 && is_x86_feature_detected!("avx2") {
+    // AVX2: a plain `popcnt256` loop for the medium range, Harley-Seal once it
+    // pays off. The `popcnt256` loop beats scalar from ~64 bytes and beats
+    // Harley-Seal until ~1 KB — the lookup-vs-Harley-Seal crossover across
+    // Haswell..Cascadelake in the sse-popcount benchmarks is 1..2 KB.
+    if bytes.len() >= 64 && is_x86_feature_detected!("avx2") {
         let n = bytes.len() / 32 * 32;
-        cnt += unsafe { popcnt_avx2(&bytes[..n]) };
+        cnt += if bytes.len() >= 1024 {
+            unsafe { popcnt_avx2(&bytes[..n]) }
+        } else {
+            unsafe { popcnt_avx2_medium(&bytes[..n]) }
+        };
         rest = &bytes[n..];
     }
 
@@ -505,6 +516,44 @@ fn popcnt_avx2(bytes: &[u8]) -> u64 {
     }
 
     // Sum the four 64-bit lanes.
+    // SAFETY: `__m256i` and `[u64; 4]` are both 32 bytes with no invalid bit patterns.
+    let lanes: [u64; 4] = unsafe { core::mem::transmute(cnt) };
+    lanes[0] + lanes[1] + lanes[2] + lanes[3]
+}
+
+/// Plain 2-accumulator `popcnt256` loop for medium arrays (~64 bytes to ~1 KB).
+/// Harley-Seal's fixed CSA-reduction epilogue makes it lose to just running
+/// `popcnt256` in a loop until ~1 KB, and this beats the scalar path from ~64
+/// bytes up. `bytes.len()` must be a multiple of 32.
+#[cfg(all(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    not(target_feature = "avx512vpopcntdq"),
+    any(target_feature = "avx2", feature = "std")
+))]
+#[target_feature(enable = "avx2")]
+#[inline]
+fn popcnt_avx2_medium(bytes: &[u8]) -> u64 {
+    let mut acc0 = _mm256_setzero_si256();
+    let mut acc1 = _mm256_setzero_si256();
+
+    let (pairs, tail) = bytes.as_chunks::<64>();
+    for chunk in pairs {
+        let p = chunk.as_ptr().cast::<__m256i>();
+        // SAFETY: `chunk` is 64 bytes, so both 32-byte loads are in bounds.
+        unsafe {
+            acc0 = _mm256_add_epi64(acc0, popcnt256(_mm256_loadu_si256(p.add(0))));
+            acc1 = _mm256_add_epi64(acc1, popcnt256(_mm256_loadu_si256(p.add(1))));
+        }
+    }
+
+    // 0 or 1 leftover 32-byte vector (`bytes.len()` is a multiple of 32).
+    let (vecs, _) = tail.as_chunks::<32>();
+    for chunk in vecs {
+        let v = unsafe { _mm256_loadu_si256(chunk.as_ptr().cast::<__m256i>()) };
+        acc0 = _mm256_add_epi64(acc0, popcnt256(v));
+    }
+
+    let cnt = _mm256_add_epi64(acc0, acc1);
     // SAFETY: `__m256i` and `[u64; 4]` are both 32 bytes with no invalid bit patterns.
     let lanes: [u64; 4] = unsafe { core::mem::transmute(cnt) };
     lanes[0] + lanes[1] + lanes[2] + lanes[3]
