@@ -38,11 +38,9 @@
     all(simd_popcnt_have_sve, any(target_feature = "sve", feature = "std")),
     feature(stdarch_aarch64_sve)
 )]
-// The crate uses `std` only for runtime CPU feature detection, which is compiled
-// only when the `std` feature is on and no SIMD path was already selected at
-// compile time. Whenever that code is absent — feature off, `-C target-cpu=native`,
-// or a non-x86/AArch64 target — the crate is `no_std`. `not(test)` keeps `std` for
-// the unit tests.
+// `std` is used only for runtime CPU feature detection. When that's absent —
+// `std` feature off, `-C target-cpu=native`, or a non-x86/AArch64 target — the
+// crate is `no_std`. `not(test)` keeps `std` for the unit tests.
 #![cfg_attr(
     not(any(
         test,
@@ -112,7 +110,7 @@ pub fn popcnt(bytes: &[u8]) -> u64 {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Ergonomic extension trait for integer slices
+// Extension trait for integer slices
 // ────────────────────────────────────────────────────────────────────────────
 
 /// Adds a [`popcnt`](PopcntExt::popcnt) method to slices of the built-in integer
@@ -133,9 +131,8 @@ pub trait PopcntExt {
     fn popcnt(&self) -> u64;
 }
 
-/// Implement [`PopcntExt`] for `[$t]` by viewing the slice as bytes and
-/// delegating to [`popcnt`]. Population count is byte-order independent, so this
-/// is correct on both little- and big-endian targets.
+/// Implements [`PopcntExt`] for `[$t]` by reinterpreting the slice as bytes.
+/// Correct on either endianness since popcount is byte-order independent.
 macro_rules! impl_popcnt_ext {
     ($($t:ty),+ $(,)?) => {$(
         impl PopcntExt for [$t] {
@@ -161,17 +158,12 @@ impl_popcnt_ext!(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
-// Portable scalar fallbacks (available on every architecture)
+// Portable scalar fallbacks
 // ────────────────────────────────────────────────────────────────────────────
 
-/// Packs the trailing `rem.len()` (0..=7) bytes into a zero-padded `u64` for
-/// counting. Uses native byte order (the popcount is order-independent), which
-/// avoids a byte swap on big-endian targets.
-///
-/// The bytes are folded in with a shift-or loop rather than `copy_from_slice`:
-/// with a runtime length the latter lowers to a `memcpy` libcall, which — for
-/// the 1..=7 tail bytes — costs more than the popcount it feeds. The explicit
-/// loop inlines to a short branch chain (matching libpopcnt's tail handling).
+/// Packs the 0..=7 trailing bytes into a `u64` (native byte order; popcount is
+/// order-independent). Shift-or rather than `copy_from_slice`, which lowers to a
+/// `memcpy` call for the runtime length.
 #[inline]
 fn tail_u64(rem: &[u8]) -> u64 {
     let mut v = 0u64;
@@ -181,11 +173,9 @@ fn tail_u64(rem: &[u8]) -> u64 {
     v
 }
 
-/// Scalar population count loop, summing `count_ones()` over 8-byte chunks.
-/// `count_ones()` is inlined in release and lowers to the target's hardware
-/// popcount where available (x86 POPCNT, PowerPC popcntd, WebAssembly
-/// `i64.popcnt`, …), otherwise to an inline bit-twiddling sequence — never a
-/// library call. Shared with the POPCNT-`target_feature` variant below.
+/// Scalar popcount over 8-byte chunks. `count_ones()` lowers to a hardware
+/// popcount where the target has one, else to inline bit-twiddling — never a
+/// libcall.
 macro_rules! popcnt_scalar_loop {
     ($bytes:expr) => {{
         let mut cnt = 0u64;
@@ -281,9 +271,8 @@ fn popcnt_scalar_static(bytes: &[u8]) -> u64 {
     }
 }
 
-/// Cached runtime check for AVX-512F + AVX-512BW + AVX-512VPOPCNTDQ support.
-/// Reads three `is_x86_feature_detected!` results once and stores the combined
-/// outcome so subsequent calls only load a single atomic.
+/// Cached check for AVX-512F + BW + VPOPCNTDQ, so repeat calls load one atomic
+/// instead of re-running three `is_x86_feature_detected!` probes.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     not(any(target_feature = "avx2", target_feature = "avx512vpopcntdq")),
@@ -328,17 +317,13 @@ fn popcnt_x86_runtime(bytes: &[u8]) -> u64 {
         rest = &bytes[n..];
     }
 
-    // Scalar tail (or the whole array if AVX2 didn't fire). Dispatching on
-    // POPCNT is essential: outside a `#[target_feature(enable = "popcnt")]`
-    // function, `count_ones()` compiles to a software fallback even on
-    // POPCNT-capable CPUs.
+    // Scalar tail, or the whole array if AVX2 didn't fire. The POPCNT dispatch
+    // matters: outside a `target_feature` fn, `count_ones()` stays a software
+    // fallback even on POPCNT CPUs.
     cnt += if is_x86_feature_detected!("popcnt") {
-        // SAFETY: the POPCNT runtime check above just passed.
-        //
-        // On x86-64 use the inline-asm scalar loop, which inlines into this
-        // dispatcher (no `call`); the `#[target_feature]` variant cannot be
-        // inlined here and would cost a real call on every tiny array. On 32-bit
-        // x86 keep the `#[target_feature]` path (no 64-bit `popcnt` reg there).
+        // SAFETY: POPCNT confirmed above. x86-64 uses the inline-asm loop (it
+        // inlines here, unlike the `target_feature` fn); x86 has no 64-bit popcnt
+        // register, so it keeps `popcnt_scalar_hw`.
         #[cfg(target_arch = "x86_64")]
         {
             unsafe { popcnt_scalar_asm(rest) }
@@ -365,26 +350,20 @@ fn popcnt_scalar_hw(bytes: &[u8]) -> u64 {
     popcnt_scalar_loop!(bytes) // count_ones() lowers to popcntq here
 }
 
-/// Population count of a `u64` via the `popcnt` instruction emitted with inline
-/// assembly. Unlike `count_ones()` — which only lowers to `popcnt` inside a
-/// `#[target_feature(enable = "popcnt")]` function — and unlike the `_popcnt64`
-/// intrinsic (also target-feature gated), inline asm carries no target-feature
-/// attribute, so this helper has no inlining barrier and folds straight into the
-/// runtime dispatcher. That mirrors libpopcnt's `__asm__("popcnt …")` path on
-/// GCC/clang and MSVC's `__popcnt64`, avoiding the non-inlinable call the
-/// `#[target_feature]` variant forces on tiny arrays.
+/// `u64` popcount via inline-asm `popcnt`. `count_ones()` and the `_popcnt64`
+/// intrinsic only emit the instruction inside a `#[target_feature(enable =
+/// "popcnt")]` fn, which then can't be inlined into the feature-less dispatcher;
+/// inline asm has no such barrier and folds into the caller (as libpopcnt's
+/// `__asm__("popcnt")` and MSVC's `__popcnt64` do).
 ///
-/// The `popcnt` mnemonic is emitted unconditionally (the assembler does not
-/// require the feature enabled), so reaching this on a CPU without POPCNT is an
-/// illegal instruction. Callers must gate on a runtime POPCNT check first —
-/// hence `unsafe`.
+/// The instruction is emitted unconditionally, so callers must confirm POPCNT at
+/// runtime first — hence `unsafe`.
 #[allow(dead_code)]
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
 unsafe fn popcnt64_asm(x: u64) -> u64 {
     let out: u64;
-    // `popcnt` writes ZF (so no `preserves_flags`); it is a pure register→register
-    // op that touches no memory, which `pure`/`nomem` let the optimizer exploit.
+    // Pure reg→reg, no memory (`pure`/`nomem`); `popcnt` writes ZF, so not `preserves_flags`.
     unsafe {
         core::arch::asm!(
             "popcnt {out}, {inp}",
@@ -396,10 +375,8 @@ unsafe fn popcnt64_asm(x: u64) -> u64 {
     out
 }
 
-/// Scalar POPCNT loop built on the inlinable [`popcnt64_asm`] helper. Unlike
-/// [`popcnt_scalar_hw`], this has no `#[target_feature]` attribute, so it inlines
-/// into the runtime dispatcher (no per-call `call`/`ret`). Only sound once a
-/// runtime POPCNT check has passed; see [`popcnt64_asm`].
+/// Scalar loop over [`popcnt64_asm`]; no `target_feature` attribute, so it
+/// inlines into the dispatcher. Sound only after a runtime POPCNT check.
 #[allow(dead_code)]
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
@@ -407,7 +384,7 @@ unsafe fn popcnt_scalar_asm(bytes: &[u8]) -> u64 {
     let mut cnt = 0u64;
     let (chunks, rem) = bytes.as_chunks::<8>();
     for chunk in chunks {
-        // SAFETY: reached only after the caller's runtime POPCNT check.
+        // SAFETY: POPCNT confirmed by the caller.
         cnt += unsafe { popcnt64_asm(u64::from_ne_bytes(*chunk)) };
     }
     if !rem.is_empty() {
