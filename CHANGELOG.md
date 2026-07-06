@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-06
+
 ### Added
 - Automated benchmark CI (Linux, macOS and Windows) that compares the current
   code against the previous release at several array sizes and fails on a more
@@ -69,6 +71,7 @@ Initial release.
 - SIMD acceleration: POPCNT / AVX2 / AVX512 on x86 and x86-64, NEON / SVE on
   AArch64, and a portable `u64::count_ones()` fallback on all other targets.
 
-[Unreleased]: https://github.com/kimwalisch/simd-popcnt/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kimwalisch/simd-popcnt/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/kimwalisch/simd-popcnt/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kimwalisch/simd-popcnt/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kimwalisch/simd-popcnt/releases/tag/v0.1.0
