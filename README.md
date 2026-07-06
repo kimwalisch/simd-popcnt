@@ -78,7 +78,7 @@ On x86 CPUs the supported instruction sets are detected at runtime (once, then
 cached) and the fastest available algorithm is selected:
 
 * If the CPU supports AVX512, the AVX512 VPOPCNTDQ algorithm is used.
-* Else if the CPU supports AVX2, the AVX2 Harley-Seal algorithm is used.
+* Else if the CPU supports AVX2, one of two AVX2 popcount algorithms is used.
 * Else if the CPU supports POPCNT, the hardware POPCNT algorithm is used.
 * For CPUs without POPCNT, a portable integer algorithm is used.
 
