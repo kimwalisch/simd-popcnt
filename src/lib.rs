@@ -11,6 +11,8 @@
 //! dependencies and needs the Rust standard library only for runtime SIMD
 //! dispatch (CPU feature detection); it is otherwise `no_std`.
 //!
+//! This is a Rust port of the [libpopcnt C/C++ library](https://github.com/kimwalisch/libpopcnt).
+//!
 //! ## Usage
 //!
 //! [`popcnt`] counts the 1 bits in a byte slice; the [`PopcntExt`] trait adds a
