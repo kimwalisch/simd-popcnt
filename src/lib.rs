@@ -28,8 +28,7 @@
 //!
 //! For the fastest possible code, compile with `RUSTFLAGS="-C target-cpu=native"`.
 //! This selects the best SIMD path at compile time and removes the runtime
-//! dispatch entirely. Only do this when the resulting binary will run on the
-//! build CPU or on CPUs with the same required instruction sets.
+//! dispatch entirely.
 
 // Enable the SVE intrinsics only when the build probe confirmed they compile and
 // the SVE code is actually built (compile-time SVE path or the `std` dispatcher).
