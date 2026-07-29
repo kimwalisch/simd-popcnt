@@ -27,6 +27,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.89"
+          targets: i686-unknown-linux-gnu
 
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
@@ -36,6 +37,9 @@ jobs:
 
       - name: Check no_std configuration
         run: cargo check --lib --no-default-features
+
+      - name: Check 32-bit x86
+        run: cargo check --lib --target i686-unknown-linux-gnu
 
       - name: Build documentation
         run: cargo doc --lib --no-deps
