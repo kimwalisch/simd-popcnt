@@ -16,7 +16,7 @@ for runtime SIMD dispatch (CPU feature detection); it is otherwise `no_std`.
 1-bits in an array. If it runs slower than another library for your particular
 use case, you are welcome to [submit a bug report](https://github.com/kimwalisch/simd-popcnt/issues).
 
-`simd-popcnt` is an AI-assisted Rust port of the [libpopcnt C/C++ library](https://github.com/kimwalisch/libpopcnt).
+`simd-popcnt` is a Rust port of the [libpopcnt C/C++ library](https://github.com/kimwalisch/libpopcnt).
 
 ## API
 
