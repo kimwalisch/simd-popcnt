@@ -11,8 +11,6 @@
 //! dependencies and needs the Rust standard library only for runtime SIMD
 //! dispatch (CPU feature detection); it is otherwise `no_std`.
 //!
-//! This is an AI-assisted Rust port of the [libpopcnt C/C++ library](https://github.com/kimwalisch/libpopcnt).
-//!
 //! ## Usage
 //!
 //! [`popcnt`] counts the 1 bits in a byte slice; the [`PopcntExt`] trait adds a
@@ -30,10 +28,12 @@
 //!
 //! For the fastest possible code, compile with `RUSTFLAGS="-C target-cpu=native"`.
 //! This selects the best SIMD path at compile time and removes the runtime
-//! dispatch entirely.
+//! dispatch entirely. Only do this when the resulting binary will run on the
+//! build CPU or on CPUs with the same required instruction sets.
 
 // Enable the SVE intrinsics only when the build probe confirmed they compile and
 // the SVE code is actually built (compile-time SVE path or the `std` dispatcher).
+#![deny(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(
     all(simd_popcnt_have_sve, any(target_feature = "sve", feature = "std")),
     feature(stdarch_aarch64_sve)
