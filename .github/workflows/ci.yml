@@ -16,6 +16,56 @@ env:
   RUSTDOCFLAGS: -D warnings
 
 jobs:
+  msrv:
+    name: MSRV (Rust 1.89)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.89
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.89"
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run test suite
+        run: cargo test --lib
+
+      - name: Check no_std configuration
+        run: cargo check --lib --no-default-features
+
+      - name: Build documentation
+        run: cargo doc --lib --no-deps
+
+  nightly:
+    name: Nightly smoke test (x86-64 Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run test suite
+        run: cargo test --lib
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run native test suite
+        run: cargo test --lib
+        env:
+          RUSTFLAGS: -C target-cpu=native -D warnings
+
   test:
     name: Test on ${{ matrix.os }} (${{ matrix.profile }})
     runs-on: ${{ matrix.os }}
@@ -29,10 +79,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # The repo's rust-toolchain.toml pins nightly (required for the ARM SVE
-      # intrinsics probe in build.rs). `components` adds clippy and rustfmt.
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      # Stable is tested explicitly even though the repository pins nightly so
+      # contributor benchmarks can use ARM SVE automatically.
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
@@ -85,8 +135,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
 
@@ -113,8 +163,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust nightly + wasm target
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust stable + wasm target
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1
 
@@ -157,8 +207,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust nightly + bare-metal target
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust stable + bare-metal target
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
@@ -174,8 +224,8 @@ jobs:
   #  * stable:  the probe rejects the nightly SVE feature, so the crate falls
   #    back to the ARM NEON algorithm — this checks that fallback path.
   # The release jobs also run the benchmark, reporting ARM SVE / NEON throughput.
-  # RUSTUP_TOOLCHAIN overrides the repo's rust-toolchain.toml (which pins
-  # nightly) so the stable job really uses stable.
+  # RUSTUP_TOOLCHAIN overrides the repo's nightly rust-toolchain.toml so the
+  # stable job really tests the stable NEON fallback.
   arm-linux:
     name: ARM64 Linux (${{ matrix.toolchain }}, ${{ matrix.profile }})
     runs-on: ubuntu-24.04-arm
