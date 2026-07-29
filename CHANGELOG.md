@@ -5,7 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-07-29
+
+First stable release. The public API and SIMD algorithms are unchanged from
+0.2.1.
+
+### Added
+- CI coverage for the Rust 1.89 MSRV and nightly Rust, plus a compile-only check
+  for 32-bit x86.
+
+### Changed
+- Stable Rust now runs the main cross-platform, native, WebAssembly and
+  `no_std` CI jobs, while nightly builds can exercise ARM SVE on capable
+  runners.
+- Enabled `unsafe_op_in_unsafe_fn` to require explicit `unsafe` blocks for every
+  unsafe operation.
+- Modernized the build-script directives and limited rebuilds of the ARM SVE
+  capability probe to changes in `build.rs`; an unsupported compiler still
+  falls back silently.
+- Excluded development scripts from the crate published to crates.io.
 
 ## [0.2.1] - 2026-07-06
 
@@ -78,7 +96,8 @@ Initial release.
 - SIMD acceleration: POPCNT / AVX2 / AVX512 on x86 and x86-64, NEON / SVE on
   AArch64, and a portable `u64::count_ones()` fallback on all other targets.
 
-[Unreleased]: https://github.com/kimwalisch/simd-popcnt/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/kimwalisch/simd-popcnt/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/kimwalisch/simd-popcnt/compare/v0.2.1...v1.0.0
 [0.2.1]: https://github.com/kimwalisch/simd-popcnt/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kimwalisch/simd-popcnt/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kimwalisch/simd-popcnt/releases/tag/v0.1.0
