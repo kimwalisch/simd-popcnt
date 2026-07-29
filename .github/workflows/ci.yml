@@ -19,6 +19,8 @@ jobs:
   msrv:
     name: MSRV (Rust 1.89)
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: "1.89"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,6 +75,8 @@ jobs:
   test:
     name: Test on ${{ matrix.os }} (${{ matrix.profile }})
     runs-on: ${{ matrix.os }}
+    env:
+      RUSTUP_TOOLCHAIN: stable
     strategy:
       fail-fast: false
       matrix:
@@ -132,6 +136,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         profile: [debug, release]
     env:
+      RUSTUP_TOOLCHAIN: stable
       # A job-level `env:` replaces the workflow-level `RUSTFLAGS` (it does not
       # append), so `-D warnings` must be repeated here to keep -Werror.
       RUSTFLAGS: -C target-cpu=native -D warnings
@@ -163,6 +168,8 @@ jobs:
   wasm:
     name: WebAssembly (wasm32-wasip1)
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -202,6 +209,8 @@ jobs:
   no_std:
     name: no_std (${{ matrix.target }})
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
     strategy:
       fail-fast: false
       matrix:
