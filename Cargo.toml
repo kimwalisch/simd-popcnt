@@ -12,7 +12,7 @@ keywords     = ["popcount", "popcnt", "simd", "bitcount", "hamming"]
 categories   = ["algorithms"]
 # Dev-only files that consumers of the published crate don't need. A nested
 # rust-toolchain.toml is ignored by downstream builds anyway (and pins nightly).
-exclude      = [".github", "rust-toolchain.toml"]
+exclude      = [".github", "rust-toolchain.toml", "scripts"]
 
 [features]
 default = ["std"]
