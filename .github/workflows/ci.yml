@@ -23,7 +23,7 @@ jobs:
       RUSTUP_TOOLCHAIN: "1.89"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust 1.89
         uses: dtolnay/rust-toolchain@master
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
@@ -85,7 +85,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Stable is tested explicitly even though the repository pins nightly so
       # contributor benchmarks can use ARM SVE automatically.
@@ -142,7 +142,7 @@ jobs:
       RUSTFLAGS: -C target-cpu=native -D warnings
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -172,7 +172,7 @@ jobs:
       RUSTUP_TOOLCHAIN: stable
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust stable + wasm target
         uses: dtolnay/rust-toolchain@stable
@@ -218,7 +218,7 @@ jobs:
         target: [x86_64-unknown-none, aarch64-unknown-none]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust stable + bare-metal target
         uses: dtolnay/rust-toolchain@stable
@@ -251,7 +251,7 @@ jobs:
       RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
@@ -288,7 +288,7 @@ jobs:
       RUSTFLAGS: -C target-cpu=native -D warnings
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
@@ -334,7 +334,7 @@ jobs:
       CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly

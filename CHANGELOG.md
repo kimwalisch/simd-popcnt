@@ -23,6 +23,8 @@ First stable release. The public API and SIMD algorithms are unchanged from
 - Modernized the build-script directives and limited rebuilds of the ARM SVE
   capability probe to changes in `build.rs`; an unsupported compiler still
   falls back silently.
+- Updated GitHub Actions checkout steps to Node.js 24-compatible
+  `actions/checkout@v7`.
 - Excluded development scripts from the crate published to crates.io.
 
 ## [0.2.1] - 2026-07-06

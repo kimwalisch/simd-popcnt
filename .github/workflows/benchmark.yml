@@ -23,7 +23,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Fetch all history and tags so the script can build the previous
           # release from its git tag.
