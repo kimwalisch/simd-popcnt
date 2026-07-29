@@ -24,7 +24,7 @@ Add the crate to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-simd-popcnt = "0.2"
+simd-popcnt = "1.0"
 ```
 
 The core function counts the one bits in a byte slice:
