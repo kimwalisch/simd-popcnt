@@ -3,7 +3,7 @@
 //! ARM SVE intrinsics in Rust's stdarch are nightly-gated under
 //! `#![feature(stdarch_aarch64_sve)]`. Rather than forcing a hard `nightly`
 //! Cargo feature, we probe whether the current `rustc` actually accepts SVE
-//! intrinsics and emit `cargo:rustc-cfg=simd_popcnt_have_sve` only when the
+//! intrinsics and emit `cargo::rustc-cfg=simd_popcnt_have_sve` only when the
 //! probe succeeds. On stable Rust (or nightly before SVE lands) the probe
 //! fails silently and all SVE code is compiled out. This is the Rust
 //! equivalent of autoconf's `AC_COMPILE_IFELSE`.
@@ -13,12 +13,16 @@ use std::{env, fs, process::Command};
 fn main() {
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
 
+    // This probe has no source inputs other than the build script itself.
+    // Without an explicit rerun condition Cargo scans the whole package.
+    println!("cargo::rerun-if-changed=build.rs");
+
     // Suppress the "unexpected cfg condition" lint (Rust 1.80+).
-    println!("cargo:rustc-check-cfg=cfg(simd_popcnt_have_sve)");
+    println!("cargo::rustc-check-cfg=cfg(simd_popcnt_have_sve)");
 
     // The probe only needs to run on aarch64; nothing else can use SVE.
     if target_arch == "aarch64" && probe_sve_intrinsics() {
-        println!("cargo:rustc-cfg=simd_popcnt_have_sve");
+        println!("cargo::rustc-cfg=simd_popcnt_have_sve");
     }
 }
 
