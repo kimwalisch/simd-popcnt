@@ -23,7 +23,7 @@ jobs:
       RUSTUP_TOOLCHAIN: "1.89"
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust 1.89
         uses: dtolnay/rust-toolchain@master
@@ -32,7 +32,7 @@ jobs:
           targets: i686-unknown-linux-gnu
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Run test suite
         run: cargo test --lib
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
@@ -59,7 +59,7 @@ jobs:
           components: clippy
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Run test suite
         run: cargo test --lib
@@ -85,7 +85,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       # Stable is tested explicitly even though the repository pins nightly so
       # contributor benchmarks can use ARM SVE automatically.
@@ -95,7 +95,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.3
 
       # Formatting is profile- and platform-independent, so check it just once.
       - name: Check formatting
@@ -142,7 +142,7 @@ jobs:
       RUSTFLAGS: -C target-cpu=native -D warnings
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -150,7 +150,7 @@ jobs:
           components: clippy
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.3
 
       # Lint the compile-time SIMD branches that target-cpu=native selects; the
       # default clippy job cannot see them because it builds no target feature.
@@ -172,7 +172,7 @@ jobs:
       RUSTUP_TOOLCHAIN: stable
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust stable + wasm target
         uses: dtolnay/rust-toolchain@stable
@@ -180,10 +180,10 @@ jobs:
           targets: wasm32-wasip1
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Install Wasmtime
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.90.3
         with:
           tool: wasmtime
 
@@ -218,7 +218,7 @@ jobs:
         target: [x86_64-unknown-none, aarch64-unknown-none]
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust stable + bare-metal target
         uses: dtolnay/rust-toolchain@stable
@@ -226,7 +226,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Build no_std
         run: cargo build --no-default-features --target ${{ matrix.target }}
@@ -251,7 +251,7 @@ jobs:
       RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
@@ -259,7 +259,7 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Run test suite
         run: cargo test ${{ matrix.profile == 'release' && '--release' || '' }}
@@ -288,7 +288,7 @@ jobs:
       RUSTFLAGS: -C target-cpu=native -D warnings
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
@@ -296,7 +296,7 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Run test suite
         run: cargo test ${{ matrix.profile == 'release' && '--release' || '' }}
@@ -334,7 +334,7 @@ jobs:
       CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
@@ -343,7 +343,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y valgrind
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.3
 
       # Release mode exercises the optimized SIMD paths. Runs the unit tests and
       # doctests under Valgrind via the target runner configured above.

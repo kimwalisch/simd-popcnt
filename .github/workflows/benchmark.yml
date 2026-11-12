@@ -23,7 +23,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           # Fetch all history and tags so the script can build the previous
           # release from its git tag.
@@ -33,7 +33,7 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Benchmark latest code vs. previous release
         run: ./scripts/benchmark-vs-prev-release.sh
